@@ -19,14 +19,36 @@ class Robot:
         pass
 
     # 四个动作
-    def forward(self):
+    def forward(self, speed):
+        '''
+        设置前进速度，单位为米/秒。
+        正数表示前进。 
+        负数表示后退。
+        '''
         pass
 
-    def rotate(self):
+    def rotate(self, turn):
+        '''
+        设置旋转速度，单位为弧度/秒。
+        负数表示顺时针旋转。
+        正数表示逆时针旋转。
+        '''
         pass
 
     def buy(self):
+        '''
+        购买当前工作台的物品，以输入数据的身处工作台 ID 为准。
+        '''
         pass
 
+    def sell(self):
+        '''
+        出售物品给当前工作台，以输入数据的身处工作台 ID 为准。
+        '''
+        pass
+    
     def destroy(self):
+        '''
+        销毁物品。
+        '''
         pass
