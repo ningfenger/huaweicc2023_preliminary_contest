@@ -1,0 +1,1 @@
+robot_gui.exe "python Demo\main_ori.py" -m maps\2.txt
