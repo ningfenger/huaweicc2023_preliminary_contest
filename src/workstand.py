@@ -16,8 +16,8 @@ class Workstand:
         self.material = 0  # 原材料格状态
         self.product_status = 0  # 产品格状态
         self.product = 0  # 具体生产什么物品
-        self.material_pro = 0  # 原料格预定状态, 防止有多个机器人将其作为出售目标
-        self.product_pro = 0  # 防止有多个机器人将其作为购买目标
+        self.material_pro = 0  # 原料格预定状态, 防止有多个机器人将其作为出售目标 get set
+        self.product_pro = 0  # 防止有多个机器人将其作为购买目标 get set
 
     def pro_sell(self, ateial_ID):
         # 预售接口 如果是89特殊处理
