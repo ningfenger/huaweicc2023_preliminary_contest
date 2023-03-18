@@ -112,11 +112,11 @@ class RobotGroup:
         self.group_info[id_robot, :10] = np.array(float_list)
 
     # 不可set的变量[0-9]
-    def get_loc_item(self, idx_robot):
-        return self.group_info[idx_robot, [8, 9]]
-
-    def get_loc_all(self):
-        return self.group_info[:, [8, 9]]
+    def get_loc(self, idx_robot):
+        if idx_robot == -1
+            return self.group_info[:, [8, 9]]
+        else:
+            return self.group_info[idx_robot, [8, 9]]
 
     # 自定义变量【10-12】
     def get_status(self, feature_id, idx_robot):
@@ -129,8 +129,7 @@ class RobotGroup:
 
     # 自定义变量【10-12】
     def set_status_item(self, feature_id, idx_robot, value):
-        # 获取指定机器人状态
-        # idx_robot为-1表示获取所有机器人状态
+        # 设定指定机器人状态
         self.group_info[idx_robot, feature_id] = value
 
     def move2loc(self, xy_array):
@@ -349,8 +348,5 @@ if __name__ == '__main__':
         controller.cal_time_robot2workstand()
         controller.controll()
         print(frame_id)
-        line_speed, angle_speed = 3, 1.5
-        for robot_id in range(4):
-            sys.stdout.write('forward %d %d\n' % (robot_id, line_speed))
-            sys.stdout.write('rotate %d %f\n' % (robot_id, angle_speed))
+
         finish()
