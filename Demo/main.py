@@ -3,15 +3,22 @@
 import sys
 import copy
 import numpy as np
+import math
 
 DISMAP = None  # 初始化时更新，记录任意两个工作台间的测算距离/帧数
 ITEMS_BUY = [0, 3000, 4400, 5800, 15400, 17200, 19200, 76000]  # 每个物品的购买价
 ITEMS_SELL = [0, 6000, 7600, 9200, 22500, 25000, 27500, 105000]
 ITEMS_NEED = [] + [[] for _ in range(7)]  # 记录收购每个商品的工作台编号
-WORKSTAND_IN = {1: [], 2: [], 3: [], 4: [1, 2], 5: [1, 3], 6: [2, 3], 7: [4, 5, 6], 8: [7], 9: list(range(1, 8))}
+WORKSTAND_IN = {1: [], 2: [], 3: [], 4: [1, 2], 5: [1, 3],
+                6: [2, 3], 7: [4, 5, 6], 8: [7], 9: list(range(1, 8))}
 WORKSTAND_OUT = {i: i for i in range(1, 8)}
 WORKSTAND_OUT[8] = None
 WORKSTAND_OUT[9] = None
+MOVE_SPEED = 0.2  # 估算移动时间
+# 定义一些常量
+ETA = 100  # 调整斥力大小的常数
+GAMMA = 1  # 调整吸引力大小的常数
+RADIUS = 2  # 定义半径范围
 
 # 全局变量 特证明命名的变量对应索引值 防止字典查询太慢
 # _r结尾 机器人特征
@@ -49,11 +56,12 @@ class Map:
     def add_workstand(self, num_type, x, y):
         # 第一次读地图添加工作台
         # 类型 x y 剩余生产时间 原材料格状态 产品格状态 预售接口 预购接口
-        new_info = np.array([num_type, x, y, 0.0, 0.0, 0.0] + [np.nan] * 2).reshape(1, 8)
+        new_info = np.array(
+            [num_type, x, y, 0.0, 0.0, 0.0] + [np.nan] * 2).reshape(1, 8)
         self._workstand = np.concatenate([self._workstand, new_info], axis=0)
         self.count += 1
 
-    def update_platform(self, id_platform, state_str):
+    def update_platform(self, idx_platform, state_str):
         # 后面读地图 更新工作台状态
         # 输入：字符串
 
@@ -61,46 +69,59 @@ class Map:
         str_list = state_str.split()
         float_list = [float(str_item) for str_item in str_list]
         # num_type, x, y, waiting_time, raw_state, product_state = float_list
-        self._workstand[id_platform, :6] = np.array(float_list)
+        self._workstand[idx_platform, :6] = np.array(float_list)
 
-    def set_material_pro(self, id_workstand, value):
+    def set_material_pro(self, idx_workstand, value):
         # 预售接口 如果是89特殊处理
-        self._workstand[id_workstand, -2] = value
+        self._workstand[idx_workstand, -2] = value
 
-    def set_product_pro(self, id_workstand, value):
+    def set_product_pro(self, idx_workstand, value):
         # 预购接口, 如果是123特殊处理
-        self._workstand[id_workstand, -1] = value
+        self._workstand[idx_workstand, -1] = value
 
-    def get_material_pro(self, id_workstand):
+    def get_material_pro(self, idx_workstand):
         # 原料格预定状态, 防止有多个机器人将其作为出售目标
-        return self._workstand[id_workstand, -2]
+        return copy.deepcopy(self._workstand[idx_workstand, -2])
 
-    def get_product_pro(self, id_workstand):
+    def get_product_pro(self, idx_workstand):
         # 防止有多个机器人将其作为购买目标
-        return self._workstand[id_workstand, -1]
+        return copy.deepcopy(self._workstand[idx_workstand, -1])
 
-    def get_workstand_status(self, id_workstand):
-        workstand_type, product_time, material, product_status = self._workstand[id_workstand, [0, 3, 4, 5]].tolist()
+    def get_workstand_status(self, idx_workstand):
+        workstand_type, product_time, material, product_status = self._workstand[idx_workstand, [
+            0, 3, 4, 5]].tolist()
         return workstand_type, product_time, material, product_status
 
-    def get_loc(self):
-        return self._workstand[:, [1, 2]]
+    def get_loc(self, idx_workstand):
+        if idx_workstand == -1:
+            return copy.deepcopy(self._workstand[:, [1, 2]])
+        else:
+            return copy.deepcopy(self._workstand[idx_workstand, [1, 2]])
 
     def __len__(self):
         return self.count
 
+
 class RobotGroup:
+    # 0 空闲, 1 购买途中, 2 等待购买, 3 出售途中, 4 等待出售
+    FREE_STATUS = 0
+    MOVE_TO_BUY_STATUS = 1
+    WAIT_TO_BUY_STATUS = 2
+    MOVE_TO_SELL_STATUS = 3
+    WAIT_TO_SELL_STATUS = 4
     def __init__(self):
         self.group_info = np.zeros((4, 13))
+        self.robots_plan = [[-1, -1] for _ in range(4)]  # 记录每个机器人的买和卖目标
 
-    def add_init_location(self, id_robot, x, y):
+    def add_init_location(self, idx_robot, x, y):
         # 判题器获取
         # 0-platform_id, 1-materials, 2-time_value_coef, 3-collision_value_coef,
         # 4-ang_velo, 5-line_velo_x, 6-line_velo_x, 7-theta, 8-x, 9-y
 
         # 自定义
         # 10-status, 11-target, 12-target_theta
-        self.group_info[id_robot, :] = np.array([np.nan, x, y] + [np.nan] * 7)
+        self.group_info[idx_robot, :] = np.array(
+            [np.nan, x, y] + [np.nan] * 10)
 
     def update_robot(self, id_robot, state_str):
         # 后面读地图 更新工作台状态
@@ -114,108 +135,139 @@ class RobotGroup:
     # 不可set的变量[0-9]
     def get_loc(self, idx_robot):
         if idx_robot == -1:
-            return self.group_info[:, [8, 9]]
+            return copy.deepcopy(self.group_info[:, [8, 9]])
         else:
-            return self.group_info[idx_robot, [8, 9]]
+            return copy.deepcopy(self.group_info[idx_robot, [8, 9]])
 
     # 自定义变量【10-12】
     def get_status(self, feature_id, idx_robot):
         # 获取指定机器人状态
         # idx_robot为-1表示获取所有机器人状态
         if idx_robot == -1:
-            return self.group_info[:, feature_id]
+            return copy.deepcopy(self.group_info[:, feature_id])
         else:
-            return self.group_info[idx_robot, feature_id]
+            return copy.deepcopy(self.group_info[idx_robot, feature_id])
 
     # 自定义变量【10-12】
     def set_status_item(self, feature_id, idx_robot, value):
         # 设定指定机器人状态
         self.group_info[idx_robot, feature_id] = value
 
-    def move2loc(self, xy_array):
+    def move2loc(self, idx_robot, xy_array, speed):
         # 没写完
         # 结合人工势场计算速度
+        robots_xy = self.get_loc(-1)
+        robot_ctrl = robots_xy[idx_robot, :]
+        robot_other = np.delete(robots_xy, idx_robot, axis=0)
+
         pass
 
     # 四个动作
-    def forward(self, id_robot, speed):
+    def forward(self, idx_robot, speed):
         '''
         设置前进速度，单位为米/秒。
         正数表示前进。
         负数表示后退。
         '''
-        print("forward", id_robot, speed)
+        print("forward", idx_robot, speed)
 
-    def rotate(self, id_robot, turn):
+    def rotate(self, idx_robot, turn):
         '''
         设置旋转速度，单位为弧度/秒。
         负数表示顺时针旋转。
         正数表示逆时针旋转。
         '''
-        print("rotate", id_robot, turn)
+        print("rotate", idx_robot, turn)
 
-    def buy(self, id_robot):
+    def buy(self, idx_robot):
         '''
         购买当前工作台的物品，以输入数据的身处工作台 ID 为准。
         '''
-        if self.get_status(feature_workstand_id_r, id_robot) == self.get_status(feature_target_r, id_robot):
-            print("buy", id_robot)
+        if self.get_status(feature_workstand_id_r, idx_robot) == self.get_status(feature_target_r, idx_robot):
+            print("buy", idx_robot)
             return True
         else:
             return False
 
-
-    def sell(self, id_robot):
+    def sell(self, idx_robot):
         '''
         出售物品给当前工作台，以输入数据的身处工作台 ID 为准。
         '''
-        if self.get_status(feature_workstand_id_r, id_robot) == self.get_status(feature_target_r, id_robot):
-            print("sell", id_robot)
+        if self.get_status(feature_workstand_id_r, idx_robot) == self.get_status(feature_target_r, idx_robot):
+            print("sell", idx_robot)
             return True
         else:
             return False
 
-    def destroy(self, id_robot):
+    def destroy(self, idx_robot):
         '''
         销毁物品。
         '''
-        print("destroy", id_robot)
+        print("destroy", idx_robot)
 
 
 class Controller:
     def __init__(self, robots: RobotGroup, workstands: Map):
         self._robots = robots
         self._workstands = workstands
-        self._time_robot2workstand = None
-        self._time_workstand2workstand = None
+        self._dis_robot2robot = None
+        self._dis_robot2workstand = None
+        self._dis_workstand2workstand = None
 
-    def cal_time_robot2workstand(self):
+    def cal_dis_robot2robot(self):
+        # 计算所有机器人两两之间的距离 向量化 每来一帧调用一次
+        # 距离表存在类变量中
+        # 通过get_dis_robot2robot(self, idx_robot, idx_workstand)调用
+        loc_robots1 = self._robots.get_loc(-1)
+        loc_robots2 = self._robots.get_loc(-1)
+        delta_x2 = np.power(
+            loc_robots1[0, :] - loc_robots2[0, :].reshape(1, -1), 2)
+        delta_y2 = np.power(
+            loc_robots1[1, :] - loc_robots2[1, :].reshape(1, -1), 2)
+        self._dis_robot2robot = np.sqrt(delta_x2 + delta_y2)
+
+    def cal_dis_robot2workstand(self):
         # 计算所有机器人到所有工作站的距离 向量化 每来一帧调用一次
         # 距离表存在类变量中
-        # 通过get_time_robot2workstand(self, idx_robot, idx_workstand)调用
-        loc_robots = self._robots.get_loc_all()
-        loc_workstands = self._workstands.get_loc()
-        delta_x2 = np.power(loc_robots[0, :] - loc_workstands[0, :].reshape(1, -1), 2)
-        delta_y2 = np.power(loc_robots[1, :] - loc_workstands[1, :].reshape(1, -1), 2)
-        self._time_robot2workstand = np.sqrt(delta_x2 + delta_y2)
+        # 通过get_dis_robot2workstand(self, idx_robot, idx_workstand)调用
+        loc_robots = self._robots.get_loc(-1)
+        loc_workstands = self._workstands.get_loc(-1)
+        delta_x2 = np.power(loc_robots[0, :] -
+                            loc_workstands[0, :].reshape(1, -1), 2)
+        delta_y2 = np.power(loc_robots[1, :] -
+                            loc_workstands[1, :].reshape(1, -1), 2)
+        self._dis_robot2workstand = np.sqrt(delta_x2 + delta_y2)
 
-    def cal_time_workstand2workstand(self):
+    def cal_dis_workstand2workstand(self):
         # 计算所有机器人到所有工作站的距离 向量化 只需要在初始化调用一次
         # 距离表存在类变量中
-        # 通过get_time_workstand2workstand(self, idx_workstand1, idx_workstand2)调用
-        loc_workstands1 = self._workstands.get_loc()
-        loc_workstands2 = self._workstands.get_loc()
-        delta_x2 = np.power(loc_workstands1[0, :] - loc_workstands2[0, :].reshape(1, -1), 2)
-        delta_y2 = np.power(loc_workstands1[1, :] - loc_workstands2[1, :].reshape(1, -1), 2)
-        self._time_workstand2workstand = np.sqrt(delta_x2 + delta_y2)
+        # 通过get_dis_workstand2workstand(self, idx_workstand1, idx_workstand2)调用
+        loc_workstands1 = self._workstands.get_loc(-1)
+        loc_workstands2 = self._workstands.get_loc(-1)
+        delta_x2 = np.power(
+            loc_workstands1[0, :] - loc_workstands2[0, :].reshape(1, -1), 2)
+        delta_y2 = np.power(
+            loc_workstands1[1, :] - loc_workstands2[1, :].reshape(1, -1), 2)
+        self._dis_workstand2workstand = np.sqrt(delta_x2 + delta_y2)
 
-    def get_time_robot2workstand(self, idx_robot, idx_workstand):
-        # 机器人到工作台的时间预估
-        return self._time_robot2workstand[idx_robot, idx_workstand]
+    def get_dis_robot2robot(self, idx_robot, idx_workstand):
+        # 机器人到工作台的距离
+        return self._dis_robot2workstand[idx_robot, idx_workstand]
 
-    def get_time_workstand2workstand(self, idx_workstand1, idx_workstand2):
-        # 两个工作台间的时间预估
-        return self._time_workstand2workstand[idx_workstand1, idx_workstand2]
+    def get_dis_robot2workstand(self, idx_robot, idx_workstand):
+        # 机器人到工作台的距离
+        return self._dis_robot2workstand[idx_robot, idx_workstand]
+
+    def get_dis_workstand2workstand(self, idx_workstand1, idx_workstand2):
+        # 两个工作台间的距离
+        return self._dis_workstand2workstand[idx_workstand1, idx_workstand2]
+
+    def get_time_rate(self, frame_sell: float) -> float:
+        # 计算时间损失
+        if frame_sell >= 9000:
+            return 0.8
+        sqrt_num = math.sqrt(1-(1-frame_sell/9000)**2)
+        return (1-sqrt_num)*0.2+0.8
 
     def control(self):
         # 没写完
@@ -227,65 +279,133 @@ class Controller:
 
         idx_robot = 0
         while idx_robot < 4:
-            robot_status = int(self._robots.get_status(feature_status_r, idx_robot))
-            if robot_status == 0:
+            robot_status = int(self._robots.get_status(
+                feature_status_r, idx_robot))
+            if robot_status == RobotGroup.FREE_STATUS:
                 # 【空闲】执行调度策略
-                for idx in range(len(self._workstands)):
-                
-                self._robots.set_status_item(feature_target_r, 0)  # 这里以1为例 即准备卖给1
-                self._robots.set_status_item(feature_status_r, idx_robot, 1)  # 切换为 【购买途中】
+                max_radio = 0  # 记录最优性价比
+                for idx_workstand in range(len(self._workstands)):
+                    workstand_type, product_time, material, product_status = map(
+                        int, self._workstands.get_workstand_status(idx_workstand))
+                    if WORKSTAND_OUT[workstand_type] == None or product_time == -1 and product_status == 0:  # 不生产
+                        continue
+                    if int(self._workstands.get_product_pro()) == 1:  # 被预定了,后序考虑优化
+                        continue
+                    frame_wait_buy = product_time if product_status == 0 else 0  # 生产所需时间，如果已有商品则为0
+                    frame_move_to_buy = self.get_dis_robot2workstand(
+                        idx_robot, idx_workstand) * MOVE_SPEED
+                    # 需要这个产品的工作台
+                    for idx_worksand_to_sell in ITEMS_NEED[workstand_type]:
+                        sell_type, sell_product_time, sell_material, sell_product_status = map(
+                            int, self._workstands.get_workstand_status(idx_worksand_to_sell))
+                        if 1 << workstand_type & (int(self._workstands.get_material_pro(idx_worksand_to_sell))): # 这个格子已被预定
+                            continue
+                        frame_wait_sell = 0
+                        # 格子里有这个原料
+                        if WORKSTAND_OUT[sell_type] and 1 << workstand_type & sell_material:
+                            if sell_product_time == 0:  # 剩余生产时间为0，说明生产阻塞
+                                continue
+                            else:
+                                frame_wait_sell = sell_product_time
+                        frame_move_to_sell = self.get_dis_workstand2workstand(
+                            idx_workstand, idx_worksand_to_sell) * MOVE_SPEED
+                        frame_buy = max(frame_move_to_buy,
+                                        frame_wait_buy)  # 购买时间
+                        frame_sell = max(frame_move_to_sell,
+                                         frame_wait_sell-frame_buy)  # 出售时间
+                        total_frame = frame_buy+frame_sell  # 总时间
+                        time_rate = self.get_time_rate(frame_sell)  # 时间损耗
+                        radio = (
+                            ITEMS_SELL[workstand_type]*time_rate - ITEMS_BUY[workstand_type])/total_frame
+                        if radio > max_radio:
+                            max_radio = radio
+                            self._robots.robots_plan[idx_robot] = [
+                                idx_workstand, idx_worksand_to_sell]  # 更新计划
+                if max_radio > 0:  # 开始执行计划
+                    # 设置机器人移动目标
+                    target_walkstand = self._robots.robots_plan[idx_robot][0]
+                    self._robots.set_status_item(
+                        feature_target_r, idx_robot, target_walkstand)
+                    # 预定工作台
+                    self._workstands.set_product_pro(target_walkstand,1)
 
-                # 选择可购买的工作台
-                continue
-            elif robot_status == 1:
+                    material_pro = int(self._workstands.get_material_pro(target_walkstand))
+                    workstand_types = int(self._workstands.get_workstand_status(target_walkstand)[0])
+                    self._workstands.set_material_pro(material_pro+(1<<workstand_types))
+                    self._robots.set_status_item(feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)
+                    continue
+            elif robot_status == RobotGroup.MOVE_TO_BUY_STATUS:
                 # 【购买途中】
                 # 移动
 
                 # 判断距离是否够近
-                if self._time_robot2workstand(idx_robot, self._robots.get_status(feature_target_r, idx_robot)) < 1:
-                    # 减速
-                    pass
-
-                # 判定是否进入交互范围
-                if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(feature_target_r, idx_robot):
-                    self._robots.set_status_item(feature_status_r, idx_robot, 2)  # 切换为 【等待购买】
-                    continue
-            elif robot_status == 2:
-                # 【等待购买】
-                # 如果在等待，提前转向
-                if 1:  # 这里判定是否生产完成可以购买 不是真的1
-                    # 可以购买
-                    if self._robots.buy(idx_robot):  # 防止购买失败
-                        self._robots.set_status_item(feature_target_r, idx_robot, 8)  # 这里以9为例 即准备卖给9
-                        self._robots.set_status_item(feature_status_r, idx_robot, 3)  # 切换为 【出售途中】
-                        continue
-
-            elif robot_status == 3:
-                # 【出售途中】
-                # 移动
-                # 判断距离是否够近
-                if self._time_robot2workstand(idx_robot, self._robots.get_status(feature_target_r, idx_robot)) < 1:
+                if self._dis_robot2workstand(idx_robot, self._robots.get_status(feature_target_r, idx_robot)) < 1:
                     # 减速
                     pass
 
                 # 判定是否进入交互范围
                 if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
                         feature_target_r, idx_robot):
-                    self._robots.set_status_item(feature_status_r, idx_robot, 4)  # 切换为 【等待出售】
+                    self._robots.set_status_item(
+                        feature_status_r, idx_robot, RobotGroup.WAIT_TO_BUY_STATUS)  # 切换为 【等待购买】
+                    continue
+            elif robot_status == RobotGroup.WAIT_TO_BUY_STATUS:
+                # 【等待购买】
+                target_walkstand, next_walkstand= self._robots.robots_plan[idx_robot]
+                product_status = int(self._workstands.get_workstand_status(target_walkstand)[3])
+                # 如果在等待，提前转向
+                if product_status == 1:  # 这里判定是否生产完成可以购买 不是真的1
+                    # 可以购买
+                    if self._robots.buy(idx_robot):  # 防止购买失败
+                        self._workstands.set_product_pro(target_walkstand, 0) # 取消预购
+                        self._robots.set_status_item(
+                            feature_target_r, idx_robot, next_walkstand)  # 更新目标到卖出地点
+                        self._robots.set_status_item(
+                            feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 切换为 【出售途中】
+                        continue
+                    else:
+                        self._robots.set_status_item(
+                            feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)  # 购买失败说明位置不对，切换为 【购买途中】
+                        continue
+
+            elif robot_status == RobotGroup.MOVE_TO_SELL_STATUS:
+                # 【出售途中】
+                # 移动
+                # 判断距离是否够近
+                if self._dis_robot2workstand(idx_robot, self._robots.get_status(feature_target_r, idx_robot)) < 1:
+                    # 减速
+                    pass
+
+                # 判定是否进入交互范围
+                if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
+                        feature_target_r, idx_robot):
+                    self._robots.set_status_item(
+                        feature_status_r, idx_robot,  RobotGroup.WAIT_TO_SELL_STATUS)  # 切换为 【等待出售】
                     continue
 
-            elif robot_status == 4:
+            elif robot_status == RobotGroup.WAIT_TO_SELL_STATUS:
                 # 【等待出售】
+                _, target_walkstand= self._robots.robots_plan[idx_robot]
+                workstand_type, _, material, _ = map(int, self._workstands.get_workstand_status(idx_workstand))
+                material_type = self._robots.get_status(feature_materials_r, idx_robot)
                 # 如果在等待，提前转向
-                if 1:  # 这里判定是否生产完成可以出售 不是真的1
+                if WORKSTAND_OUT[sell_type] == None or material & 1 << material_type == 0:  # 这里判定是否生产完成可以出售 不是真的1
                     # 可以购买
                     if self._robots.sell(idx_robot):  # 防止出售失败
-                        self._robots.set_status_item(feature_target_r, idx_robot, 0)  # 这里以1为例 即准备从1买
-                        self._robots.set_status_item(feature_status_r, idx_robot, 1)  # 切换为 【购买途中】
+                        # 取消预定
+                        material_pro = int(self._workstands.get_material_pro(target_walkstand))
+                        self._workstands.set_material_pro(material_pro-(1<<material_type))
+                        self._robots.set_status_item(
+                            feature_status_r, idx_robot, RobotGroup.FREE_STATUS)  # 切换为空闲
                         continue
-            idx_robot +=1
+                else:
+                    self._robots.set_status_item(
+                            feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 购买失败说明位置不对，切换为 【出售途中】
+                    continue
+            idx_robot += 1
 
-def read_map(map_in :Map, robot_group_in:RobotGroup):
+
+def read_map(map_in: Map, robot_group_in: RobotGroup):
     num_robot = 0
     num_line = 0
     while True:
@@ -306,11 +426,14 @@ def read_map(map_in :Map, robot_group_in:RobotGroup):
                     robot_group_in.add_init_location(num_robot, x, y)
                     num_robot += 1
         num_line += 1
+
+
 def init_ITEMS_NEED(workstands: Map):
     for idx in range(len(workstands)):
         typeID = int(workstands.get_workstand_status(idx)[0])
         for itemID in WORKSTAND_IN[typeID]:
-            ITEMS_NEED[itemID].append(idx)   
+            ITEMS_NEED[itemID].append(idx)
+
 
 def get_info(map_in, robot_group):
     line_read = input()
@@ -352,12 +475,13 @@ if __name__ == '__main__':
     controller = Controller(robot_group_obj, map_obj)
 
     # 只需计算一次
-    controller.cal_time_workstand2workstand()
+    controller.cal_dis_workstand2workstand()
     finish()
     while True:
         frame_id, money = get_info(map_obj, robot_group_obj)
-        controller.cal_time_robot2workstand()
-        controller.controll()
+        controller.cal_dis_robot2workstand()
+        controller.cal_dis_robot2robot()
+        controller.control()
         print(frame_id)
 
         finish()
