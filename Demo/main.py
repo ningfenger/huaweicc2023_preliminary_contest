@@ -204,7 +204,7 @@ class Controller:
     def cal_dis_robot2robot(self):
         # 计算所有机器人两两之间的距离 向量化 每来一帧调用一次
         # 距离表存在类变量中
-        # 通过get_time_robot2robot(self, idx_robot, idx_workstand)调用
+        # 通过get_dis_robot2robot(self, idx_robot, idx_workstand)调用
         loc_robots1 = self._robots.get_loc(-1)
         loc_robots2 = self._robots.get_loc(-1)
         delta_x2 = np.power(loc_robots1[0, :] - loc_robots2[0, :].reshape(1, -1), 2)
@@ -214,17 +214,17 @@ class Controller:
     def cal_dis_robot2workstand(self):
         # 计算所有机器人到所有工作站的距离 向量化 每来一帧调用一次
         # 距离表存在类变量中
-        # 通过get_time_robot2workstand(self, idx_robot, idx_workstand)调用
+        # 通过get_dis_robot2workstand(self, idx_robot, idx_workstand)调用
         loc_robots = self._robots.get_loc(-1)
         loc_workstands = self._workstands.get_loc(-1)
         delta_x2 = np.power(loc_robots[0, :] - loc_workstands[0, :].reshape(1, -1), 2)
         delta_y2 = np.power(loc_robots[1, :] - loc_workstands[1, :].reshape(1, -1), 2)
         self._dis_robot2workstand = np.sqrt(delta_x2 + delta_y2)
 
-    def cal_time_workstand2workstand(self):
+    def cal_dis_workstand2workstand(self):
         # 计算所有机器人到所有工作站的距离 向量化 只需要在初始化调用一次
         # 距离表存在类变量中
-        # 通过get_time_workstand2workstand(self, idx_workstand1, idx_workstand2)调用
+        # 通过get_dis_workstand2workstand(self, idx_workstand1, idx_workstand2)调用
         loc_workstands1 = self._workstands.get_loc(-1)
         loc_workstands2 = self._workstands.get_loc(-1)
         delta_x2 = np.power(loc_workstands1[0, :] - loc_workstands2[0, :].reshape(1, -1), 2)
@@ -268,7 +268,7 @@ class Controller:
                 # 移动
 
                 # 判断距离是否够近
-                if self._time_robot2workstand(idx_robot, self._robots.get_status(feature_target_r, idx_robot)) < 1:
+                if self._dis_robot2workstand(idx_robot, self._robots.get_status(feature_target_r, idx_robot)) < 1:
                     # 减速
                     pass
 
@@ -291,7 +291,7 @@ class Controller:
                 # 【出售途中】
                 # 移动
                 # 判断距离是否够近
-                if self._time_robot2workstand(idx_robot, self._robots.get_status(feature_target_r, idx_robot)) < 1:
+                if self._dis_robot2workstand(idx_robot, self._robots.get_status(feature_target_r, idx_robot)) < 1:
                     # 减速
                     pass
 
@@ -381,7 +381,7 @@ if __name__ == '__main__':
     controller = Controller(robot_group_obj, map_obj)
 
     # 只需计算一次
-    controller.cal_time_workstand2workstand()
+    controller.cal_dis_workstand2workstand()
     finish()
     while True:
         frame_id, money = get_info(map_obj, robot_group_obj)
