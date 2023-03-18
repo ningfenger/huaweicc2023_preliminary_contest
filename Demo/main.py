@@ -9,7 +9,7 @@ import math
 DISMAP = None  # 初始化时更新，记录任意两个工作台间的测算距离/帧数
 ITEMS_BUY = [0, 3000, 4400, 5800, 15400, 17200, 19200, 76000]  # 每个物品的购买价
 ITEMS_SELL = [0, 6000, 7600, 9200, 22500, 25000, 27500, 105000]
-ITEMS_NEED = [] + [[] for _ in range(7)]  # 记录收购每个商品的工作台编号
+ITEMS_NEED = [[] for _ in range(8)]  # 记录收购每个商品的工作台编号
 WORKSTAND_IN = {1: [], 2: [], 3: [], 4: [1, 2], 5: [1, 3],
                 6: [2, 3], 7: [4, 5, 6], 8: [7], 9: list(range(1, 8))}
 WORKSTAND_OUT = {i: i for i in range(1, 8)}
