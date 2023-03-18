@@ -3,12 +3,21 @@
 import sys
 import copy
 import numpy as np
+import math
+import heapq
 
 DISMAP = None  # 初始化时更新，记录任意两个工作台间的测算距离/帧数
 ITEMS_BUY = [0, 3000, 4400, 5800, 15400, 17200, 19200, 76000]  # 每个物品的购买价
 ITEMS_SELL = [0, 6000, 7600, 9200, 22500, 25000, 27500, 105000]
 ITEMS_NEED = [] + [[] for _ in range(7)]  # 记录收购每个商品的工作台编号
 WORKSTAND_IN = {1: [], 2: [], 3: [], 4: [1, 2], 5: [1, 3], 6: [2, 3], 7: [4, 5, 6], 8: [7], 9: list(range(1, 8))}
+WORKSTAND_IN_BINARY = map
+for workstand_type,materials in WORKSTAND_IN.items():
+    binary = 0
+    for material in materials:
+        binary |= 1 < material
+    WORKSTAND_IN_BINARY[workstand_type] = binary
+
 WORKSTAND_OUT = {i: i for i in range(1, 8)}
 WORKSTAND_OUT[8] = None
 WORKSTAND_OUT[9] = None
@@ -44,6 +53,10 @@ feature_product_state_w = 5
 feature_material_pro_w = 6
 feature_product_pro_w = 7
 
+def rate(price_sell):
+    if price_sell > 9000:
+        return 0.8
+    return (1 - math.sqrt(1 - (1 - price_sell)**2)) * 0.2 + 0.8
 
 class Map:
     def __init__(self):
@@ -192,6 +205,29 @@ class RobotGroup:
         '''
         print("destroy", idx_robot)
 
+class Task:
+    def __init__(self,ratio,robot_idx, product_workstand_idx,sell_workstand_idx):
+        self.__ratio = ratio
+        self.__robot_idx = robot_idx
+        self.__product_workstand_idx=product_workstand_idx
+        self.__sell_workstand_idx=sell_workstand_idx
+
+    def __lt__(self, other):
+        if self.__ratio != other.get_ratio():
+            return self.__ratio < other.get_ratio()
+        return self.get_robot_idx() < other.get_robox_idx()
+
+    def get_ratio(self):
+        return self.__ratio
+
+    def get_robot_idx(self):
+        return self.__robot_idx
+
+    def get_product_workstand_idx(self):
+        return self.__product_workstand_idx
+
+    def get_sell_workstand_idx(self):
+        return self.__sell_workstand_idx
 
 class Controller:
     def __init__(self, robots: RobotGroup, workstands: Map):
@@ -248,21 +284,94 @@ class Controller:
 
         # 高鹏的三维矩阵筛选
         # 查看可购买的工作台
-
+        tasks = []
+        tasks_max_num = 4
         # 查看可收购的工作台
+        for product_workstand_idx in range(len(self._workstands)):
+            product_workstand_type, product_time, _, product_status =self._workstands.get_workstand_status(product_workstand_idx)
+
+            product_type = WORKSTAND_OUT[product_workstand_type]
+            if product_type == None:
+                # 不生成产品
+                continue
+
+            if product_status == 0:
+                # 暂时没有产品
+                if product_time == -1:
+                    # 没有准备好原材料
+                    continue
+
+            if self._workstands.get_product_pro(product_workstand_idx):
+                # 该产品已被预定
+                continue
+
+            for sell_workstand_idx in range (len(self._workstands)):
+                """
+                暂时未考虑是否优先将产品卖给同一台需要多种原料才能生产的工作站
+                """
+                sell_workstand_type, _, material, product_status = self._workstands.get_workstand_status(sell_workstand_idx)
+                if  WORKSTAND_OUT[product_workstand_type] not in  WORKSTAND_IN[sell_workstand_type]:
+                    # 当前工作台不接收购买的产品
+                    continue
+                if material & (1 << WORKSTAND_OUT[product_workstand_type]) or \
+                        self._workstands.get_material_pro(sell_workstand_idx) & (1<<product_type):
+                    # 当前工作台原材料格子里已经放入上面购买的原材料
+                    # or 该原材料格子已被预定
+                    continue
+
+                for robot_idx in range(4):
+                    robot_status = int(self._robots.get_status(feature_status_r, robot_idx))
+                    if robot_status != 0:
+                        continue
+
+                    dis_robot_product_workstand = self.get_dis_robot2workstand(robot_idx,product_workstand_idx)
+                    dis_product_sell_workstand = self.get_dis_workstand2workstand(product_workstand_idx,sell_workstand_idx)
+                    price_buy = ITEMS_BUY[product_type]
+                    price_sell = ITEMS_SELL[product_type]
+                    ratio = (price_sell * rate(price_sell) - price_buy) \
+                        / (dis_product_sell_workstand * 8 + \
+                           (max(dis_robot_product_workstand * 8, product_time)))
+                    heapq.heappush(tasks,Task(ratio,robot_idx,product_workstand_idx,sell_workstand_idx))
+                    if len(tasks) > 4:
+                        heapq.heappop()
+        tasks_len = len(tasks)
+        for _ in range(tasks_len):
+            task = heapq.heappop(tasks)
+            robot_idx = task.get_robot_idx()
+            product_workstand_idx = task.get_product_workstand_idx()
+            sell_workstand_idx = task.get_sell_workstand_idx()
+
+            robot_status = int(self._robots.get_status(feature_status_r, robot_idx))
+            if robot_status != 0:
+                continue
+
+            product_workstand_type, _, _, _ = self._workstands.get_workstand_status(
+                product_workstand_idx)
+            if self._workstands.get_product_pro(product_workstand_idx):
+                # 该产品格子已被预定
+                continue
+            product_type = WORKSTAND_OUT[product_workstand_type]
+            materials = self._workstands.get_material_pro(sell_workstand_idx)
+            if materials & (1 << product_type):
+                # 该原材料格子已被预定
+                continue
+
+            self._robots.set_status_item(feature_status_r,robot_idx,1)
+            self._robots.set_status_item(feature_target_r,product_workstand_idx)
+            self._workstands.set_product_pro(product_workstand_idx,1)
+            self._workstands.set_material_pro(sell_workstand_idx,materials | (1 << product_type))
 
         idx_robot = 0
         while idx_robot < 4:
             robot_status = int(self._robots.get_status(feature_status_r, idx_robot))
             if robot_status == 0:
+                continue
                 # 【空闲】执行调度策略
-                for idx in range(len(self._workstands)):
-
-                self._robots.set_status_item(feature_target_r, 0)  # 这里以1为例 即准备卖给1
-                self._robots.set_status_item(feature_status_r, idx_robot, 1)  # 切换为 【购买途中】
+                # self._robots.set_status_item(feature_target_r, 0)  # 这里以1为例 即准备卖给1
+                # self._robots.set_status_item(feature_status_r, idx_robot, 1)  # 切换为 【购买途中】
 
                 # 选择可购买的工作台
-                continue
+                # continue
             elif robot_status == 1:
                 # 【购买途中】
                 # 移动
@@ -277,6 +386,7 @@ class Controller:
                         feature_target_r, idx_robot):
                     self._robots.set_status_item(feature_status_r, idx_robot, 2)  # 切换为 【等待购买】
                     continue
+
             elif robot_status == 2:
                 # 【等待购买】
                 # 如果在等待，提前转向
