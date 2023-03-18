@@ -537,6 +537,7 @@ if __name__ == '__main__':
     map_obj = Map()
 
     read_map(map_obj, robot_group_obj)
+    init_ITEMS_NEED(map_obj)
 
     controller = Controller(robot_group_obj, map_obj)
 
