@@ -3,7 +3,6 @@
 import sys
 import copy
 
-import numpy
 import numpy as np
 import math
 
@@ -60,7 +59,7 @@ class Map:
         # 第一次读地图添加工作台
         # 类型 x y 剩余生产时间 原材料格状态 产品格状态 预售接口 预购接口
         new_info = np.array(
-            [num_type, x, y, 0.0, 0.0, 0.0] + [np.nan] * 2).reshape(1, 8)
+            [num_type, x, y, 0.0, 0.0, 0.0] + [0] * 2).reshape(1, 8)
         self._workstand = np.concatenate([self._workstand, new_info], axis=0)
         self.count += 1
 
@@ -124,7 +123,7 @@ class RobotGroup:
         # 自定义
         # 10-status, 11-target, 12-target_theta
         self.group_info[idx_robot, :] = np.array(
-            [np.nan, x, y] + [np.nan] * 10)
+            [-1, x, y] + [0] * 10)
 
     def update_robot(self, id_robot, state_str):
         # 后面读地图 更新工作台状态
@@ -219,9 +218,9 @@ class Controller:
         loc_robots1 = self._robots.get_loc(-1)
         loc_robots2 = self._robots.get_loc(-1)
         delta_x2 = np.power(
-            loc_robots1[0, :] - loc_robots2[0, :].reshape(1, -1), 2)
+            loc_robots1[:, 0].reshape(-1, 1) - loc_robots2[:, 0].reshape(1, -1), 2)
         delta_y2 = np.power(
-            loc_robots1[1, :] - loc_robots2[1, :].reshape(1, -1), 2)
+            loc_robots1[:, 1].reshape(-1, 1) - loc_robots2[:, 1].reshape(1, -1), 2)
         self._dis_robot2robot = np.sqrt(delta_x2 + delta_y2)
 
     def cal_dis_robot2workstand(self):
@@ -230,9 +229,11 @@ class Controller:
         # 通过get_dis_robot2workstand(self, idx_robot, idx_workstand)调用
         loc_robots = self._robots.get_loc(-1)
         loc_workstands = self._workstands.get_loc(-1)
-        self._delta_x_r2w = loc_robots[0, :] - loc_workstands[0, :]
-        self._delta_x_r2w = loc_robots[1, :] - loc_workstands[1, :]
+        self._delta_x_r2w = loc_robots[:, 0].reshape(-1, 1) - loc_workstands[:, 0].reshape(1, -1)
+        self._delta_x_r2w = loc_robots[:, 1].reshape(-1, 1) - loc_workstands[:, 1].reshape(1, -1)
         self._dis_robot2workstand = np.sqrt(np.power(self._delta_x_r2w, 2) + np.power(self._delta_x_r2w, 2))
+        #
+        # raise Exception(str(loc_robots.shape))
 
     def cal_dis_workstand2workstand(self):
         # 计算所有机器人到所有工作站的距离 向量化 只需要在初始化调用一次
@@ -240,9 +241,11 @@ class Controller:
         # 通过get_dis_workstand2workstand(self, idx_workstand1, idx_workstand2)调用
         loc_workstands1 = self._workstands.get_loc(-1)
         loc_workstands2 = self._workstands.get_loc(-1)
-        self._delta_x_r2r = loc_workstands1[0, :] - loc_workstands2[0, :].reshape(1, -1)
-        self._delta_y_r2r = loc_workstands1[1, :] - loc_workstands2[1, :].reshape(1, -1)
+        self._delta_x_r2r = loc_workstands1[:, 0].reshape(-1, 1) - loc_workstands2[:, 0].reshape(1, -1)
+        self._delta_y_r2r = loc_workstands1[:, 1].reshape(-1, 1) - loc_workstands2[:, 1].reshape(1, -1)
+
         self._dis_workstand2workstand = np.sqrt(np.power(self._delta_x_r2r, 2) + np.power(self._delta_y_r2r, 2))
+
 
     def get_dis_robot2robot(self, idx_robot, idx_workstand):
         # 机器人到工作台的距离
@@ -295,9 +298,10 @@ class Controller:
         desired_angle = np.arctan2(total_field[1], total_field[0])
         return desired_angle
 
-    def move2loc(self, idx_robot, idx_target, speed):
+    def move2loc(self, idx_robot, speed):
         # 输入控制机器人编号 目标工作台编号 期望速度
         # 结合人工势场计算速度
+        idx_target = self._robots.get_status(feature_target_r, idx_robot)
 
         desired_theta = self.calculate_potential_field(idx_robot, idx_target)
 
@@ -399,8 +403,10 @@ class Controller:
 
                 # 判断距离是否够近
                 if self._dis_robot2workstand(idx_robot, self._robots.get_status(feature_target_r, idx_robot)) < 1:
-                    # 减速
-                    pass
+                    self.move2loc(idx_robot, 3)
+                else:
+                    self.move2loc(idx_robot, 6)
+
 
                 # 判定是否进入交互范围
                 if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
@@ -432,8 +438,9 @@ class Controller:
                 # 移动
                 # 判断距离是否够近
                 if self._dis_robot2workstand(idx_robot, self._robots.get_status(feature_target_r, idx_robot)) < 1:
-                    # 减速
-                    pass
+                    self.move2loc(idx_robot, 3)
+                else:
+                    self.move2loc(idx_robot, 6)
 
                 # 判定是否进入交互范围
                 if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
@@ -539,8 +546,8 @@ if __name__ == '__main__':
     while True:
         frame_id, money = get_info(map_obj, robot_group_obj)
         controller.cal_dis_robot2workstand()
-        # controller.cal_dis_robot2robot()
-        # controller.control()
+        controller.cal_dis_robot2robot()
+        controller.control()
         print(frame_id)
 
         finish()
