@@ -245,34 +245,43 @@ class Controller:
         # 计算位于current_pos处的机器人的势能场
         attractive_field = np.zeros(2)
         repulsive_field = np.zeros(2)
-
+        theta_robot = self._robots.get_status(feature_theta_r, idx_robot)
+        dircos_robot = np.array([math.cos(theta_robot), math.sin(theta_robot)])
         for idx_other in range(4):
             if not idx_other == idx_robot:
                 # 计算机器人之间的距离
-                dx_robot = self._delta_x_r2r(idx_robot, idx_other)  # 其他指向自己
-                dy_robot = self._delta_y_r2r(idx_robot, idx_other)  # 其他指向自己
                 distance_robot = self._dis_robot2robot(idx_robot, idx_other)
 
+                dx_robot = self._delta_x_r2r(idx_robot, idx_other) / distance_robot  # 其他指向自己的方向余弦
+                dy_robot = self._delta_y_r2r(idx_robot, idx_other) / distance_robot  # 其他指向自己的方向余弦
+
+                theta_other = self._robots.get_status(feature_theta_r, idx_other)
+
+                # 各向异性判断是否会产生潜在的碰撞事件
+                dircos_other = np.array([math.cos(theta_other), math.sin(theta_other)])
+                ang_robot = math.acos(np.dot(dircos_robot, np.array([-dx_robot, -dy_robot])))
+                ang_other = math.acos(np.dot(dircos_other, np.array([dx_robot, dy_robot])))
+
                 # 如果机器人之间的距离小于一定半径范围，则计算斥力
-                if distance_robot < RADIUS:
+                if distance_robot < RADIUS and (ang_robot < math.pi * 0.2 or ang_other < math.pi * 0.2):
                     repulsive_force = 0.5 * ETA * ((1.0 / distance_robot) - (1.0 / RADIUS)) ** 2
-                    repulsive_field[0] += repulsive_force * dx_robot / distance_robot
-                    repulsive_field[1] += repulsive_force * dy_robot / distance_robot
+                    repulsive_field[0] += repulsive_force * dx_robot
+                    repulsive_field[1] += repulsive_force * dy_robot
 
                 # 计算机器人到目标点的吸引力
-                dx_r2w = -self._delta_x_r2r(idx_robot, idx_other)  # 加负号后自己指向工作台
-                dy_r2w = -self._delta_y_r2r(idx_robot, idx_other)  # 加负号后自己指向工作台
                 distance_r2w = self._dis_robot2workstand(idx_robot, idx_workstand)
+                dx_r2w = -self._delta_x_r2r(idx_robot, idx_other) / distance_r2w  # 加负号后自己指向工作台
+                dy_r2w = -self._delta_y_r2r(idx_robot, idx_other) / distance_r2w  # 加负号后自己指向工作台
                 attractive_force = 0.5 * GAMMA * distance_r2w ** 2
-                attractive_field[0] = attractive_force * dx_r2w / distance_r2w
-                attractive_field[1] = attractive_force * dy_r2w / distance_r2w
+                attractive_field[0] = attractive_force * dx_r2w
+                attractive_field[1] = attractive_force * dy_r2w
 
         total_field = repulsive_field + attractive_field
         desired_angle = np.arctan2(total_field[1], total_field[0])
         return desired_angle
 
     def move2loc(self, idx_robot, idx_target, speed):
-        # 没写完
+        # 输入控制机器人编号 目标工作台编号 期望速度
         # 结合人工势场计算速度
 
         desired_theta = self.calculate_potential_field(idx_robot, idx_target)
