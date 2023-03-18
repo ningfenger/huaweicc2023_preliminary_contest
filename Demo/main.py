@@ -7,6 +7,7 @@ import time
 import numpy as np
 import math
 import logging
+
 DIS_1 = 0.4
 VELO_1 = 0.1
 DISMAP = None  # 初始化时更新，记录任意两个工作台间的测算距离/帧数
@@ -18,8 +19,8 @@ WORKSTAND_IN = {1: [], 2: [], 3: [], 4: [1, 2], 5: [1, 3],
 WORKSTAND_OUT = {i: i for i in range(1, 8)}
 WORKSTAND_OUT[8] = None
 WORKSTAND_OUT[9] = None
-MOVE_SPEED = 1/3*50  # 估算移动时间
-
+MOVE_SPEED = 1 / 3 * 50  # 估算移动时间
+MAX_WAIT = 5 * 50  # 最大等待时间
 # 人工势场常熟
 ETA = 300  # 调整斥力大小的常数
 GAMMA = 10  # 调整吸引力大小的常数
@@ -167,7 +168,7 @@ class RobotGroup:
         负数表示后退。
         '''
 
-        logging.info(f"forward {idx_robot} {speed}")
+        # # logging.info(f"forward {idx_robot} {speed}")
         print("forward", idx_robot, speed)
 
     def rotate(self, idx_robot, turn):
@@ -176,7 +177,7 @@ class RobotGroup:
         负数表示顺时针旋转。
         正数表示逆时针旋转。
         '''
-        logging.info(f"rotate {idx_robot} {turn}")
+        # logging.info(f"rotate {idx_robot} {turn}")
         print("rotate", idx_robot, turn)
 
     def buy(self, idx_robot):
@@ -185,7 +186,7 @@ class RobotGroup:
         '''
         if self.get_status(feature_workstand_id_r, idx_robot) == self.get_status(feature_target_r, idx_robot):
 
-            logging.info(f"buy {idx_robot}")
+            # logging.info(f"buy {idx_robot}")
             print("buy", idx_robot)
             return True
         else:
@@ -197,7 +198,7 @@ class RobotGroup:
         '''
         if self.get_status(feature_workstand_id_r, idx_robot) == self.get_status(feature_target_r, idx_robot):
 
-            logging.info(f"sell {idx_robot}")
+            # logging.info(f"sell {idx_robot}")
             print("sell", idx_robot)
             return True
         else:
@@ -207,7 +208,7 @@ class RobotGroup:
         '''
         销毁物品。
         '''
-        logging.info("destroy", idx_robot)
+        # logging.info("destroy", idx_robot)
         print("destroy", idx_robot)
 
 
@@ -341,7 +342,8 @@ class Controller:
         # else:
         #     # 无转速按原策略
         #     self._robots.rotate(idx_robot, delta_theta * k)
-
+        if abs(delta_theta) > math.pi / 4:
+            speed = delta_theta * k * 0.5
         self._robots.forward(idx_robot, speed)
 
     def get_time_rate(self, frame_sell: float) -> float:
@@ -374,6 +376,8 @@ class Controller:
                     if int(self._workstands.get_product_pro(idx_workstand)) == 1:  # 被预定了,后序考虑优化
                         continue
                     frame_wait_buy = product_time if product_status == 0 else 0  # 生产所需时间，如果已有商品则为0
+                    if frame_wait_buy > MAX_WAIT:
+                        continue
                     frame_move_to_buy = self.get_dis_robot2workstand(
                         idx_robot, idx_workstand) * MOVE_SPEED
                     # 需要这个产品的工作台
@@ -381,11 +385,11 @@ class Controller:
                         sell_type, sell_product_time, sell_material, sell_product_status = map(
                             int, self._workstands.get_workstand_status(idx_worksand_to_sell))
                         if 1 << workstand_type & (
-                        int(self._workstands.get_material_pro(idx_worksand_to_sell))):  # 这个格子已被预定
+                                int(self._workstands.get_material_pro(idx_worksand_to_sell))):  # 这个格子已被预定
                             continue
                         frame_wait_sell = 0
                         # 格子里有这个原料
-                        logging.debug(f"sell_product_time:{sell_product_time}")
+                        # logging.debug(f"sell_product_time:{sell_product_time}")
                         # 判断是不是8或9 不是8或9 且这个原料格子已经被占用的情况
                         if WORKSTAND_OUT[sell_type] and 1 << workstand_type & sell_material:
                             continue
@@ -449,7 +453,7 @@ class Controller:
                             feature_target_r, idx_robot, next_walkstand)  # 更新目标到卖出地点
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 切换为 【出售途中】
-                        logging.debug(f"{idx_robot}->way to sell")
+                        # logging.debug(f"{idx_robot}->way to sell")
                         continue
                     else:
                         self._robots.set_status_item(
@@ -471,7 +475,7 @@ class Controller:
                         feature_target_r, idx_robot):
                     self._robots.set_status_item(
                         feature_status_r, idx_robot, RobotGroup.WAIT_TO_SELL_STATUS)  # 切换为 【等待出售】
-                    logging.debug(f"{idx_robot}->ready to sell")
+                    # logging.debug(f"{idx_robot}->ready to sell")
                     continue
 
             elif robot_status == RobotGroup.WAIT_TO_SELL_STATUS:
@@ -489,8 +493,8 @@ class Controller:
                         self._workstands.set_material_pro(target_walkstand, material_pro - (1 << material_type))
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.FREE_STATUS)  # 切换为空闲
-                        logging.debug(f"{idx_robot}->wait")
-                        # continue
+                        # logging.debug(f"{idx_robot}->wait")
+                        break  # 防止别人以它为目标 后面可以优化改为最后集中处理预售
                     else:
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 购买失败说明位置不对，切换为 【出售途中】
@@ -556,14 +560,14 @@ def get_info(map_in, robot_group):
 
 
 def finish():
-    logging.info('OK\n')
+    # logging.info('OK\n')
     sys.stdout.write('OK\n')
     sys.stdout.flush()
 
 
 if __name__ == '__main__':
-    logging.basicConfig(filename='log/log.log', level=logging.DEBUG)
-    logging.info('===================')
+    # logging.basicConfig(filename='log/log.log', level=# logging.DEBUG)
+    # logging.info('===================')
     robot_group_obj = RobotGroup()
     map_obj = Map()
     # time.sleep(20)
@@ -577,13 +581,13 @@ if __name__ == '__main__':
     finish()
     while True:
         frame_id, money = get_info(map_obj, robot_group_obj)
-        if frame_id=='430':
+        if frame_id == '430':
             aaa = 0
             pass
         controller.cal_dis_robot2workstand()
         controller.cal_dis_robot2robot()
 
-        logging.info(frame_id)
+        # logging.info(frame_id)
         print(frame_id)
         controller.control()
 
