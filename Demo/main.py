@@ -113,7 +113,7 @@ class RobotGroup:
 
     # 不可set的变量[0-9]
     def get_loc(self, idx_robot):
-        if idx_robot == -1
+        if idx_robot == -1:
             return self.group_info[:, [8, 9]]
         else:
             return self.group_info[idx_robot, [8, 9]]
@@ -225,16 +225,19 @@ class Controller:
 
         # 查看可收购的工作台
 
-
-        for idx_robot in range(4):
-            if self._robots.get_status(feature_status_r, idx_robot) == 0:
-                # 【空闲(初始化)】
-                # 只调用一次，一开始什么都没买
+        idx_robot = 0
+        while idx_robot < 4:
+            robot_status = int(self._robots.get_status(feature_status_r, idx_robot))
+            if robot_status == 0:
+                # 【空闲】执行调度策略
+                for idx in range(len(self._workstands)):
+                
                 self._robots.set_status_item(feature_target_r, 0)  # 这里以1为例 即准备卖给1
                 self._robots.set_status_item(feature_status_r, idx_robot, 1)  # 切换为 【购买途中】
 
                 # 选择可购买的工作台
-            elif self._robots.get_status(feature_status_r, idx_robot) == 1:
+                continue
+            elif robot_status == 1:
                 # 【购买途中】
                 # 移动
 
@@ -246,8 +249,8 @@ class Controller:
                 # 判定是否进入交互范围
                 if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(feature_target_r, idx_robot):
                     self._robots.set_status_item(feature_status_r, idx_robot, 2)  # 切换为 【等待购买】
-
-            elif self._robots.get_status(feature_status_r, idx_robot) == 2:
+                    continue
+            elif robot_status == 2:
                 # 【等待购买】
                 # 如果在等待，提前转向
                 if 1:  # 这里判定是否生产完成可以购买 不是真的1
@@ -255,8 +258,9 @@ class Controller:
                     if self._robots.buy(idx_robot):  # 防止购买失败
                         self._robots.set_status_item(feature_target_r, idx_robot, 8)  # 这里以9为例 即准备卖给9
                         self._robots.set_status_item(feature_status_r, idx_robot, 3)  # 切换为 【出售途中】
+                        continue
 
-            elif self._robots.get_status(feature_status_r, idx_robot) == 3:
+            elif robot_status == 3:
                 # 【出售途中】
                 # 移动
                 # 判断距离是否够近
@@ -268,8 +272,9 @@ class Controller:
                 if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
                         feature_target_r, idx_robot):
                     self._robots.set_status_item(feature_status_r, idx_robot, 4)  # 切换为 【等待出售】
+                    continue
 
-            elif self._robots.get_status(feature_status_r, idx_robot) == 4:
+            elif robot_status == 4:
                 # 【等待出售】
                 # 如果在等待，提前转向
                 if 1:  # 这里判定是否生产完成可以出售 不是真的1
@@ -277,8 +282,10 @@ class Controller:
                     if self._robots.sell(idx_robot):  # 防止出售失败
                         self._robots.set_status_item(feature_target_r, idx_robot, 0)  # 这里以1为例 即准备从1买
                         self._robots.set_status_item(feature_status_r, idx_robot, 1)  # 切换为 【购买途中】
+                        continue
+            idx_robot +=1
 
-def read_map(map_in, robot_group_in):
+def read_map(map_in :Map, robot_group_in:RobotGroup):
     num_robot = 0
     num_line = 0
     while True:
@@ -299,7 +306,11 @@ def read_map(map_in, robot_group_in):
                     robot_group_in.add_init_location(num_robot, x, y)
                     num_robot += 1
         num_line += 1
-
+def init_ITEMS_NEED(workstands: Map):
+    for idx in range(len(workstands)):
+        typeID = int(workstands.get_workstand_status(idx)[0])
+        for itemID in WORKSTAND_IN[typeID]:
+            ITEMS_NEED[itemID].append(idx)   
 
 def get_info(map_in, robot_group):
     line_read = input()
