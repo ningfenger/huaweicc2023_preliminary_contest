@@ -17,7 +17,8 @@ WORKSTAND_OUT = {i: i for i in range(1, 8)}
 WORKSTAND_OUT[8] = None
 WORKSTAND_OUT[9] = None
 MOVE_SPEED = 0.2  # 估算移动时间
-# 定义一些常量
+
+# 人工势场常熟
 ETA = 100  # 调整斥力大小的常数
 GAMMA = 1  # 调整吸引力大小的常数
 RADIUS = 2  # 定义半径范围
@@ -300,7 +301,7 @@ class Controller:
 
         desired_theta = self.calculate_potential_field(idx_robot, idx_target)
 
-        # pi 追踪目标方向
+        # 比例控制 追踪目标方向
         # 计算相差方向 P
         now_theta = self._robots.get_status(feature_theta_r, idx_robot)
         now_ang_velo = self._robots.get_status(feature_ang_velo_r, idx_robot)
@@ -347,7 +348,7 @@ class Controller:
                         int, self._workstands.get_workstand_status(idx_workstand))
                     if WORKSTAND_OUT[workstand_type] == None or product_time == -1 and product_status == 0:  # 不生产
                         continue
-                    if int(self._workstands.get_product_pro()) == 1:  # 被预定了,后序考虑优化
+                    if int(self._workstands.get_product_pro(idx_workstand)) == 1:  # 被预定了,后序考虑优化
                         continue
                     frame_wait_buy = product_time if product_status == 0 else 0  # 生产所需时间，如果已有商品则为0
                     frame_move_to_buy = self.get_dis_robot2workstand(
@@ -381,7 +382,7 @@ class Controller:
                                 idx_workstand, idx_worksand_to_sell]  # 更新计划
                 if max_radio > 0:  # 开始执行计划
                     # 设置机器人移动目标
-                    target_walkstand = self._robots.robots_plan[idx_robot][0]
+                    target_walkstand, next_walkstand = self._robots.robots_plan[idx_robot]
                     self._robots.set_status_item(
                         feature_target_r, idx_robot, target_walkstand)
                     # 预定工作台
@@ -389,7 +390,7 @@ class Controller:
 
                     material_pro = int(self._workstands.get_material_pro(target_walkstand))
                     workstand_types = int(self._workstands.get_workstand_status(target_walkstand)[0])
-                    self._workstands.set_material_pro(material_pro+(1<<workstand_types))
+                    self._workstands.set_material_pro(next_walkstand, material_pro+(1<<workstand_types))
                     self._robots.set_status_item(feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)
                     continue
             elif robot_status == RobotGroup.MOVE_TO_BUY_STATUS:
@@ -444,15 +445,15 @@ class Controller:
             elif robot_status == RobotGroup.WAIT_TO_SELL_STATUS:
                 # 【等待出售】
                 _, target_walkstand= self._robots.robots_plan[idx_robot]
-                workstand_type, _, material, _ = map(int, self._workstands.get_workstand_status(idx_workstand))
+                workstand_type, _, material, _ = map(int, self._workstands.get_workstand_status(target_walkstand))
                 material_type = self._robots.get_status(feature_materials_r, idx_robot)
                 # 如果在等待，提前转向
-                if WORKSTAND_OUT[sell_type] == None or material & 1 << material_type == 0:  # 这里判定是否生产完成可以出售 不是真的1
+                if WORKSTAND_OUT[workstand_type] == None or material & 1 << material_type == 0:  # 这里判定是否生产完成可以出售 不是真的1
                     # 可以购买
                     if self._robots.sell(idx_robot):  # 防止出售失败
                         # 取消预定
                         material_pro = int(self._workstands.get_material_pro(target_walkstand))
-                        self._workstands.set_material_pro(material_pro-(1<<material_type))
+                        self._workstands.set_material_pro(target_walkstand, material_pro-(1<<material_type))
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.FREE_STATUS)  # 切换为空闲
                         continue
