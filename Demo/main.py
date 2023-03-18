@@ -464,10 +464,10 @@ class Controller:
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.FREE_STATUS)  # 切换为空闲
                         continue
-                else:
-                    self._robots.set_status_item(
-                            feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 购买失败说明位置不对，切换为 【出售途中】
-                    continue
+                    else:
+                        self._robots.set_status_item(
+                                feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 购买失败说明位置不对，切换为 【出售途中】
+                        continue
             idx_robot += 1
 
 
