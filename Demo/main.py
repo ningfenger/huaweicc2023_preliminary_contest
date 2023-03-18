@@ -2,7 +2,10 @@
 # coding=utf-8
 import sys
 import copy
+
+import numpy
 import numpy as np
+import math
 
 DISMAP = None  # 初始化时更新，记录任意两个工作台间的测算距离/帧数
 ITEMS_BUY = [0, 3000, 4400, 5800, 15400, 17200, 19200, 76000]  # 每个物品的购买价
@@ -140,15 +143,6 @@ class RobotGroup:
         # 设定指定机器人状态
         self.group_info[idx_robot, feature_id] = value
 
-    def move2loc(self, idx_robot, xy_array, speed):
-        # 没写完
-        # 结合人工势场计算速度
-        robots_xy = self.get_loc(-1)
-        robot_ctrl = robots_xy[idx_robot, :]
-        robot_other = np.delete(robots_xy, idx_robot, axis=0)
-
-        pass
-
     # 四个动作
     def forward(self, idx_robot, speed):
         '''
@@ -170,7 +164,7 @@ class RobotGroup:
         '''
         购买当前工作台的物品，以输入数据的身处工作台 ID 为准。
         '''
-        if self.get_status(feature_workstand_id_r, id_robot) == self.get_status(feature_target_r, id_robot):
+        if self.get_status(feature_workstand_id_r, idx_robot) == self.get_status(feature_target_r, idx_robot):
             print("buy", idx_robot)
             return True
         else:
@@ -180,7 +174,7 @@ class RobotGroup:
         '''
         出售物品给当前工作台，以输入数据的身处工作台 ID 为准。
         '''
-        if self.get_status(feature_workstand_id_r, id_robot) == self.get_status(feature_target_r, id_robot):
+        if self.get_status(feature_workstand_id_r, idx_robot) == self.get_status(feature_target_r, idx_robot):
             print("sell", idx_robot)
             return True
         else:
@@ -200,6 +194,10 @@ class Controller:
         self._dis_robot2robot = None
         self._dis_robot2workstand = None
         self._dis_workstand2workstand = None
+        self._delta_x_r2r = None
+        self._delta_y_r2r = None
+        self._delta_x_r2w = None
+        self._delta_y_r2w = None
 
     def cal_dis_robot2robot(self):
         # 计算所有机器人两两之间的距离 向量化 每来一帧调用一次
@@ -217,9 +215,9 @@ class Controller:
         # 通过get_dis_robot2workstand(self, idx_robot, idx_workstand)调用
         loc_robots = self._robots.get_loc(-1)
         loc_workstands = self._workstands.get_loc(-1)
-        delta_x2 = np.power(loc_robots[0, :] - loc_workstands[0, :].reshape(1, -1), 2)
-        delta_y2 = np.power(loc_robots[1, :] - loc_workstands[1, :].reshape(1, -1), 2)
-        self._dis_robot2workstand = np.sqrt(delta_x2 + delta_y2)
+        self._delta_x_r2w = loc_robots[0, :] - loc_workstands[0, :]
+        self._delta_x_r2w = loc_robots[1, :] - loc_workstands[1, :]
+        self._dis_robot2workstand = np.sqrt(np.power(self._delta_x_r2w, 2) + np.power(self._delta_x_r2w, 2))
 
     def cal_dis_workstand2workstand(self):
         # 计算所有机器人到所有工作站的距离 向量化 只需要在初始化调用一次
@@ -227,9 +225,9 @@ class Controller:
         # 通过get_dis_workstand2workstand(self, idx_workstand1, idx_workstand2)调用
         loc_workstands1 = self._workstands.get_loc(-1)
         loc_workstands2 = self._workstands.get_loc(-1)
-        delta_x2 = np.power(loc_workstands1[0, :] - loc_workstands2[0, :].reshape(1, -1), 2)
-        delta_y2 = np.power(loc_workstands1[1, :] - loc_workstands2[1, :].reshape(1, -1), 2)
-        self._dis_workstand2workstand = np.sqrt(delta_x2 + delta_y2)
+        self._delta_x_r2r = loc_workstands1[0, :] - loc_workstands2[0, :].reshape(1, -1)
+        self._delta_y_r2r = loc_workstands1[1, :] - loc_workstands2[1, :].reshape(1, -1)
+        self._dis_workstand2workstand = np.sqrt(np.power(self._delta_x_r2r, 2) + np.power(self._delta_y_r2r, 2))
 
     def get_dis_robot2robot(self, idx_robot, idx_workstand):
         # 机器人到工作台的距离
@@ -242,6 +240,63 @@ class Controller:
     def get_dis_workstand2workstand(self, idx_workstand1, idx_workstand2):
         # 两个工作台间的距离
         return self._dis_workstand2workstand[idx_workstand1, idx_workstand2]
+
+    def calculate_potential_field(self, idx_robot, idx_workstand):
+        # 计算位于current_pos处的机器人的势能场
+        attractive_field = np.zeros(2)
+        repulsive_field = np.zeros(2)
+
+        for idx_other in range(4):
+            if not idx_other == idx_robot:
+                # 计算机器人之间的距离
+                dx_robot = self._delta_x_r2r(idx_robot, idx_other)  # 其他指向自己
+                dy_robot = self._delta_y_r2r(idx_robot, idx_other)  # 其他指向自己
+                distance_robot = self._dis_robot2robot(idx_robot, idx_other)
+
+                # 如果机器人之间的距离小于一定半径范围，则计算斥力
+                if distance_robot < RADIUS:
+                    repulsive_force = 0.5 * ETA * ((1.0 / distance_robot) - (1.0 / RADIUS)) ** 2
+                    repulsive_field[0] += repulsive_force * dx_robot / distance_robot
+                    repulsive_field[1] += repulsive_force * dy_robot / distance_robot
+
+                # 计算机器人到目标点的吸引力
+                dx_r2w = -self._delta_x_r2r(idx_robot, idx_other)  # 加负号后自己指向工作台
+                dy_r2w = -self._delta_y_r2r(idx_robot, idx_other)  # 加负号后自己指向工作台
+                distance_r2w = self._dis_robot2workstand(idx_robot, idx_workstand)
+                attractive_force = 0.5 * GAMMA * distance_r2w ** 2
+                attractive_field[0] = attractive_force * dx_r2w / distance_r2w
+                attractive_field[1] = attractive_force * dy_r2w / distance_r2w
+
+        total_field = repulsive_field + attractive_field
+        desired_angle = np.arctan2(total_field[1], total_field[0])
+        return desired_angle
+
+    def move2loc(self, idx_robot, idx_target, speed):
+        # 没写完
+        # 结合人工势场计算速度
+
+        desired_theta = self.calculate_potential_field(idx_robot, idx_target)
+
+        # pi 追踪目标方向
+        # 计算相差方向 P
+        now_theta = self._robots.get_status(feature_theta_r, idx_robot)
+        now_ang_velo = self._robots.get_status(feature_ang_velo_r, idx_robot)
+        delta_theta = desired_theta - now_theta
+        delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
+        k = 0.5
+        if delta_theta > -0.9 * math.pi and desired_theta < 0.9 * math.pi:
+            # 需要顺时针转动追踪目标方向
+            self._robots.rotate(idx_robot, delta_theta * k)
+        elif abs(now_ang_velo) > 0.01:
+            # 防止有转速时在小区间震荡
+            # 按原转速冲过震荡区间
+            self._robots.rotate(idx_robot, np.sign(now_ang_velo))
+        else:
+            # 无转速按原策略
+            self._robots.rotate(idx_robot, delta_theta * k)
+
+        self._robots.forward(idx_robot, speed)
+
 
     def control(self):
         # 没写完
@@ -258,8 +313,8 @@ class Controller:
                 # 【空闲】执行调度策略
                 for idx in range(len(self._workstands)):
 
-                self._robots.set_status_item(feature_target_r, 0)  # 这里以1为例 即准备卖给1
-                self._robots.set_status_item(feature_status_r, idx_robot, 1)  # 切换为 【购买途中】
+                    self._robots.set_status_item(feature_target_r, 0)  # 这里以1为例 即准备卖给1
+                    self._robots.set_status_item(feature_status_r, idx_robot, 1)  # 切换为 【购买途中】
 
                 # 选择可购买的工作台
                 continue
@@ -386,8 +441,8 @@ if __name__ == '__main__':
     while True:
         frame_id, money = get_info(map_obj, robot_group_obj)
         controller.cal_dis_robot2workstand()
-        controller.cal_dis_robot2robot()
-        controller.control()
+        # controller.cal_dis_robot2robot()
+        # controller.control()
         print(frame_id)
 
         finish()
