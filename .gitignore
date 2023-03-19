@@ -41,6 +41,7 @@ pip-delete-this-directory.txt
 log/
 replay/
 *.zip
+*.rep
 # Unit test / coverage reports
 htmlcov/
 .tox/
