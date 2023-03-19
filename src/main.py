@@ -84,11 +84,10 @@ if __name__ == '__main__':
         if frame_id == '430':
             aaa = 0
             pass
-        controller.cal_dis_robot2workstand()
-        controller.cal_dis_robot2robot()
+
 
         # logging.info(frame_id)
         print(frame_id)
-        controller.control(int(frame_id))
+        controller.control2(int(frame_id))
 
         finish()

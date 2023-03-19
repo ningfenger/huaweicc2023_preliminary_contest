@@ -46,14 +46,14 @@ class Map:
         else:
             # 此工作台不生产任何物品
             buy_price = np.inf
-            self.product_workstand_dict[self.count] = tuple([x, y, buy_price, np.nan])  # 记录这个工作台产物的购买价格
+            self.product_workstand_dict[self.count] = tuple([x, y, buy_price, np.nan, self.count])  # 记录这个工作台产物的购买价格
 
         item_receive_set = WORKSTAND_IN[num_type]
         if len(item_receive_set) > 0:
             for item_receive in item_receive_set:
                 # 遍历此工作台接受的物品
                 sell_price = ITEMS_SELL[item_receive]
-                self.receive_cell_dict[self.count_cell] = tuple([x, y, sell_price, item_receive])
+                self.receive_cell_dict[self.count_cell] = tuple([x, y, sell_price, item_receive, self.count])
                 self.count_cell += 1
         else:
             # 此工作台不接收任何物品 不做任何操作

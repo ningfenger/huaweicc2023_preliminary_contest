@@ -33,15 +33,19 @@ class Controller:
         self._robots = robots
         self._workstands = workstands
         self._dis_robot2robot = None
+        self._dis_robot2cell = None
         self._dis_robot2workstand = None
         self._dis_workstand2workstand = None
         self._dis_cell2workstand = None
+        self._dis_robot2workstand2cell = None
         self._delta_x_r2r = None
         self._delta_y_r2r = None
         self._delta_x_w2w = None
         self._delta_y_w2w = None
         self._delta_x_r2w = None
         self._delta_y_r2w = None
+        self._delta_x_r2c = None
+        self._delta_y_r2c = None
         self._delta_x_c2w = None
         self._delta_y_c2w = None
         self._product_workstand_unlock = np.array([True] * workstands.count)
@@ -117,8 +121,23 @@ class Controller:
         type_equal = type_cell.reshape(-1, 1) - type_workstand.reshape(1, -1)
 
         self._profit_estimation = sell_cell.reshape(-1, 1) - buy_workstand.reshape(1, -1)
+        self._profit_estimation[type_equal != 0] = -np.inf
         pass
 
+    def cal_dis_robot2workstand2cell(self):
+        loc_robots = self._robots.get_loc(-1)
+        x_cell = np.array(
+            [self._workstands.receive_cell_dict[key][0] for key in self._workstands.receive_cell_dict])
+        y_cell = np.array(
+            [self._workstands.receive_cell_dict[key][1] for key in self._workstands.receive_cell_dict])
+
+        self._delta_x_r2c = loc_robots[:, 0].reshape(
+            -1, 1) - x_cell.reshape(1, -1)
+        self._delta_y_r2c = loc_robots[:, 1].reshape(
+            -1, 1) - y_cell.reshape(1, -1)
+        self._dis_robot2cell = np.sqrt(
+            np.power(self._delta_x_r2c, 2) + np.power(self._delta_y_r2c, 2))
+        self._dis_robot2workstand2cell = self._dis_robot2workstand[:, :, np.newaxis] + self._dis_cell2workstand.T[np.newaxis, :, :]
     def get_dis_robot2robot(self, idx_robot1, idx_robot2):
         # 机器人到工作台的距离
         return copy.deepcopy(self._dis_robot2robot[idx_robot1, idx_robot2])
@@ -304,13 +323,116 @@ class Controller:
         return False
 
     def control(self, frame_id: int):
-        # 没写完
+        self.cal_dis_robot2workstand()
+        self.cal_dis_robot2robot()
 
-        # 高鹏的三维矩阵筛选
-        # 查看可购买的工作台
+        self.cal_dis_robot2workstand2cell()
+        idx_robot = 0
+        while idx_robot < 4:
+            robot_status = int(self._robots.get_status(
+                feature_status_r, idx_robot))
+            if robot_status == RobotGroup.FREE_STATUS:
+                # 【空闲】执行调度策略
+                if self.choise(frame_id, idx_robot):
+                    continue
+            elif robot_status == RobotGroup.MOVE_TO_BUY_STATUS:
+                # 【购买途中】
 
-        # 查看可收购的工作台
+                if self.get_dis_robot2workstand(idx_robot,
+                                                self._robots.get_status(feature_target_r, idx_robot)) < DIS_1:
+                    self.move2loc(idx_robot, VELO_1)
+                else:
+                    self.move2loc(idx_robot, 6)
 
+                # 判定是否进入交互范围
+                if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
+                        feature_target_r, idx_robot):
+                    self._robots.set_status_item(
+                        feature_status_r, idx_robot, RobotGroup.WAIT_TO_BUY_STATUS)  # 切换为 【等待购买】
+                    continue
+            elif robot_status == RobotGroup.WAIT_TO_BUY_STATUS:
+                # 【等待购买】
+                target_walkstand, next_walkstand = self._robots.robots_plan[idx_robot]
+                product_status = int(
+                    self._workstands.get_workstand_status(target_walkstand)[3])
+                # 如果在等待，提前转向
+                if product_status == 1:  # 这里判定是否生产完成可以购买 不是真的1
+                    # 可以购买
+                    if self._robots.buy(idx_robot):  # 防止购买失败
+                        self._workstands.set_product_pro(
+                            target_walkstand, 0)  # 取消预购
+                        self._robots.set_status_item(
+                            feature_target_r, idx_robot, next_walkstand)  # 更新目标到卖出地点
+                        self._robots.set_status_item(
+                            feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 切换为 【出售途中】
+                        # logging.debug(f"{idx_robot}->way to sell")
+                        continue
+                    else:
+                        self._robots.set_status_item(
+                            feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)  # 购买失败说明位置不对，切换为 【购买途中】
+                        continue
+
+            elif robot_status == RobotGroup.MOVE_TO_SELL_STATUS:
+                # 【出售途中】
+                # 移动
+                # 判断距离是否够近
+                if self.get_dis_robot2workstand(idx_robot,
+                                                self._robots.get_status(feature_target_r, idx_robot)) < DIS_1:
+                    self.move2loc(idx_robot, VELO_1)
+                else:
+                    self.move2loc(idx_robot, 6)
+
+                # 判定是否进入交互范围
+                if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
+                        feature_target_r, idx_robot):
+                    self._robots.set_status_item(
+                        feature_status_r, idx_robot, RobotGroup.WAIT_TO_SELL_STATUS)  # 切换为 【等待出售】
+                    # logging.debug(f"{idx_robot}->ready to sell")
+                    continue
+
+            elif robot_status == RobotGroup.WAIT_TO_SELL_STATUS:
+                # 【等待出售】
+                _, target_walkstand = self._robots.robots_plan[idx_robot]
+                workstand_type, _, material, _ = map(
+                    int, self._workstands.get_workstand_status(target_walkstand))
+                material_type = int(self._robots.get_status(
+                    feature_materials_r, idx_robot))
+                # 如果在等待，提前转向
+                # raise Exception(F"{material},{material_type}")
+                # 这里判定是否生产完成可以出售 不是真的1
+                if not WORKSTAND_OUT[workstand_type] or (material & 1 << material_type) == 0:
+                    # 可以购买
+                    if self._robots.sell(idx_robot):  # 防止出售失败
+                        # 取消预定
+                        material_pro = int(
+                            self._workstands.get_material_pro(target_walkstand))
+                        self._workstands.set_material_pro(
+                            target_walkstand, material_pro - (1 << material_type))
+                        self._robots.set_status_item(
+                            feature_status_r, idx_robot, RobotGroup.FREE_STATUS)  # 切换为空闲
+                        # logging.debug(f"{idx_robot}->wait")
+                        break  # 防止别人以它为目标 后面可以优化改为最后集中处理预售
+                    else:
+                        self._robots.set_status_item(
+                            feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 购买失败说明位置不对，切换为 【出售途中】
+                        continue
+            idx_robot += 1
+
+    def control2(self, frame_id: int):
+        self.cal_dis_robot2workstand()
+        self.cal_dis_robot2robot()
+
+        # 计算移动耗时
+        self.cal_dis_robot2workstand2cell()
+
+        # 计算冷却耗时
+        self.cal_cooldown()
+
+        # 计算总耗时
+
+        # 计算利率
+
+        # 从未被锁定的组合中依次选取最高
         idx_robot = 0
         while idx_robot < 4:
             robot_status = int(self._robots.get_status(
