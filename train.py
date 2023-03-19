@@ -36,7 +36,7 @@ def target_function(x1, x2, x3, x4, x5, x6, x7, x8):
     return total_score
 
 
-def train(num_iterations=100, learning_rate = 0.001):
+def train(num_iterations=100, learning_rate = 0.1):
     print(f'num_iterations:{num_iterations}, learning_rate:{learning_rate}')
     # 定义可行解的范围（最小值和最大值）
     boundaries = [(0, 1.0)]*8
@@ -51,7 +51,7 @@ def train(num_iterations=100, learning_rate = 0.001):
         grad = []
         old_value = target_function(*params)
         for j in range(len(params)):
-            delta = 0.001
+            delta = 0.1
             new_params = params.copy()
             new_params[j] += delta
             new_value = target_function(*new_params)
