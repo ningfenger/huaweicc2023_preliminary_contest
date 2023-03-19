@@ -6,8 +6,8 @@ import copy
 import math
 import logging
 
-DIS_1 = 0.4
-VELO_1 = 0.1
+# 环境常量
+MATCH_FRAME = 3*60*50  # 总帧数
 DISMAP = None  # 初始化时更新，记录任意两个工作台间的测算距离/帧数
 ITEMS_BUY = [0, 3000, 4400, 5800, 15400, 17200, 19200, 76000]  # 每个物品的购买价
 ITEMS_SELL = [0, 6000, 7600, 9200, 22500, 25000, 27500, 105000]
@@ -17,13 +17,20 @@ WORKSTAND_IN = {1: [], 2: [], 3: [], 4: [1, 2], 5: [1, 3],
 WORKSTAND_OUT = {i: i for i in range(1, 8)}
 WORKSTAND_OUT[8] = None
 WORKSTAND_OUT[9] = None
-MOVE_SPEED = 1 / 3 * 50  # 估算移动时间
-MAX_WAIT = 4 * 50  # 最大等待时间
-MATCH_FRAME = 3*60*50  # 总帧数
+
+# 控制参数
+DIS_1 = 0.4
+VELO_1 = 0.1
+MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
+MAX_WAIT = 3 * 50  # 最大等待时间
+SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
 # 人工势场常熟
 ETA = 300  # 调整斥力大小的常数
 GAMMA = 10  # 调整吸引力大小的常数
-RADIUS = 3  # 定义斥力半径范围
+RADIUS = 4  # 定义斥力半径范围
+BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
+# 测试
+DEBUG = False
 
 
 class Controller:
@@ -39,7 +46,8 @@ class Controller:
         self._delta_y_w2w = None
         self._delta_x_r2w = None
         self._delta_y_r2w = None
-        # logging.basicConfig(filename='debug.log', level=logging.DEBUG)
+        if DEBUG:
+            logging.basicConfig(filename='debug.log', level=logging.DEBUG)
 
     def init_ITEMS_NEED(self):
         workstands = self._workstands
@@ -195,6 +203,83 @@ class Controller:
         sqrt_num = math.sqrt(1 - (1 - frame_sell / 9000) ** 2)
         return (1 - sqrt_num) * 0.2 + 0.8
 
+    def choise(self, frame_id: int, idx_robot: int) -> bool:
+        # 进行一次决策
+        max_radio = 0  # 记录最优性价比
+        for idx_workstand in range(len(self._workstands)):
+            workstand_type, product_time, material, product_status = map(
+                int, self._workstands.get_workstand_status(idx_workstand))
+            if WORKSTAND_OUT[workstand_type] == None or product_time == -1 and product_status == 0:  # 不生产
+                continue
+            if int(self._workstands.get_product_pro(idx_workstand)) == 1:  # 被预定了,后序考虑优化
+                continue
+            frame_wait_buy = product_time if product_status == 0 else 0  # 生产所需时间，如果已有商品则为0
+            if frame_wait_buy > MAX_WAIT:
+                continue
+            frame_move_to_buy = self.get_dis_robot2workstand(
+                idx_robot, idx_workstand) * MOVE_SPEED
+            buy_weight = BUY_WEIGHT[workstand_type]
+            # 需要这个产品的工作台
+            for idx_worksand_to_sell in ITEMS_NEED[workstand_type]:
+                sell_type, sell_product_time, sell_material, sell_product_status = map(
+                    int, self._workstands.get_workstand_status(idx_worksand_to_sell))
+                # 这个格子已被预定
+                if 1 << workstand_type & int(self._workstands.get_material_pro(idx_worksand_to_sell)):
+                    continue
+                # frame_wait_sell = 0
+                # 格子里有这个原料
+                if DEBUG:
+                    logging.debug(
+                        f"frame_id:{frame_id}, idx_robot:{idx_robot}, idx_worksand_to_sell:{idx_worksand_to_sell}")
+                    logging.debug(
+                        f"sell_product_time:{sell_product_time}")
+                    logging.debug(
+                        f"workstand_type:{workstand_type}, sell_material:{sell_material}")
+                # 判断是不是8或9 不是8或9 且这个原料格子已经被占用的情况, 生产完了并不一定能继续生产
+                if WORKSTAND_OUT[sell_type] and 1 << workstand_type & sell_material:
+                    continue
+                    # if sell_product_time == -1:  # 剩余生产时间为0，说明生产阻塞
+                    #     continue
+                    # else:
+                    #     frame_wait_sell = sell_product_time
+                frame_move_to_sell = self.get_dis_workstand2workstand(
+                    idx_workstand, idx_worksand_to_sell) * MOVE_SPEED
+                frame_buy = max(frame_move_to_buy,
+                                frame_wait_buy)  # 购买时间
+                # frame_sell = max(frame_move_to_sell,
+                #                  frame_wait_sell - frame_buy)  # 出售时间
+                total_frame = frame_buy + frame_move_to_sell  # 总时间
+                if total_frame + frame_id > MATCH_FRAME:  # 完成这套动作就超时了
+                    continue
+                time_rate = self.get_time_rate(
+                    frame_move_to_sell)  # 时间损耗
+                sell_weight = SELL_WEIGHT if sell_material else 1
+                radio = (
+                    ITEMS_SELL[workstand_type] * time_rate - ITEMS_BUY[
+                        workstand_type]) / total_frame*sell_weight*buy_weight
+                if radio > max_radio:
+                    max_radio = radio
+                    self._robots.robots_plan[idx_robot] = [
+                        idx_workstand, idx_worksand_to_sell]  # 更新计划
+        if max_radio > 0:  # 开始执行计划
+            # 设置机器人移动目标
+            target_walkstand, next_walkstand = self._robots.robots_plan[idx_robot]
+            self._robots.set_status_item(
+                feature_target_r, idx_robot, target_walkstand)
+            # 预定工作台
+            self._workstands.set_product_pro(target_walkstand, 1)
+
+            material_pro = int(
+                self._workstands.get_material_pro(next_walkstand))
+            workstand_types = int(
+                self._workstands.get_workstand_status(target_walkstand)[0])
+            self._workstands.set_material_pro(
+                next_walkstand, material_pro + (1 << workstand_types))
+            self._robots.set_status_item(
+                feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)
+            return True
+        return False
+
     def control(self, frame_id: int):
         # 没写完
 
@@ -209,73 +294,7 @@ class Controller:
                 feature_status_r, idx_robot))
             if robot_status == RobotGroup.FREE_STATUS:
                 # 【空闲】执行调度策略
-                max_radio = 0  # 记录最优性价比
-                for idx_workstand in range(len(self._workstands)):
-                    workstand_type, product_time, material, product_status = map(
-                        int, self._workstands.get_workstand_status(idx_workstand))
-                    if WORKSTAND_OUT[workstand_type] == None or product_time == -1 and product_status == 0:  # 不生产
-                        continue
-                    if int(self._workstands.get_product_pro(idx_workstand)) == 1:  # 被预定了,后序考虑优化
-                        continue
-                    frame_wait_buy = product_time if product_status == 0 else 0  # 生产所需时间，如果已有商品则为0
-                    if frame_wait_buy > MAX_WAIT:
-                        continue
-                    frame_move_to_buy = self.get_dis_robot2workstand(
-                        idx_robot, idx_workstand) * MOVE_SPEED
-                    # 需要这个产品的工作台
-                    for idx_worksand_to_sell in ITEMS_NEED[workstand_type]:
-                        sell_type, sell_product_time, sell_material, sell_product_status = map(
-                            int, self._workstands.get_workstand_status(idx_worksand_to_sell))
-                        # 这个格子已被预定
-                        if 1 << workstand_type & int(self._workstands.get_material_pro(idx_worksand_to_sell)):
-                            continue
-                        frame_wait_sell = 0
-                        # 格子里有这个原料
-                        # logging.debug(
-                        #     f"frame_id:{frame_id}, idx_robot:{idx_robot}, idx_worksand_to_sell:{idx_worksand_to_sell}")
-                        # logging.debug(f"sell_product_time:{sell_product_time}")
-                        # logging.debug(
-                        #     f"workstand_type:{workstand_type}, sell_material:{sell_material}")
-                        # 判断是不是8或9 不是8或9 且这个原料格子已经被占用的情况
-                        if WORKSTAND_OUT[sell_type] and 1 << workstand_type & sell_material:
-                            continue
-                            # if sell_product_time in [0, -1]:  # 剩余生产时间为0，说明生产阻塞
-                            #     continue
-                            # else:
-                            #     frame_wait_sell = sell_product_time
-                        frame_move_to_sell = self.get_dis_workstand2workstand(
-                            idx_workstand, idx_worksand_to_sell) * MOVE_SPEED
-                        frame_buy = max(frame_move_to_buy,
-                                        frame_wait_buy)  # 购买时间
-                        frame_sell = max(frame_move_to_sell,
-                                         frame_wait_sell - frame_buy)  # 出售时间
-                        total_frame = frame_buy + frame_sell  # 总时间
-                        if total_frame + frame_id > MATCH_FRAME:  # 完成这套动作就超时了
-                            continue
-                        time_rate = self.get_time_rate(frame_sell)  # 时间损耗
-                        radio = (
-                            ITEMS_SELL[workstand_type] * time_rate - ITEMS_BUY[
-                                workstand_type]) / total_frame
-                        if radio > max_radio:
-                            max_radio = radio
-                            self._robots.robots_plan[idx_robot] = [
-                                idx_workstand, idx_worksand_to_sell]  # 更新计划
-                if max_radio > 0:  # 开始执行计划
-                    # 设置机器人移动目标
-                    target_walkstand, next_walkstand = self._robots.robots_plan[idx_robot]
-                    self._robots.set_status_item(
-                        feature_target_r, idx_robot, target_walkstand)
-                    # 预定工作台
-                    self._workstands.set_product_pro(target_walkstand, 1)
-
-                    material_pro = int(
-                        self._workstands.get_material_pro(next_walkstand))
-                    workstand_types = int(
-                        self._workstands.get_workstand_status(target_walkstand)[0])
-                    self._workstands.set_material_pro(
-                        next_walkstand, material_pro + (1 << workstand_types))
-                    self._robots.set_status_item(
-                        feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)
+                if self.choise(frame_id, idx_robot):
                     continue
             elif robot_status == RobotGroup.MOVE_TO_BUY_STATUS:
                 # 【购买途中】
