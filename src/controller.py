@@ -19,15 +19,15 @@ WORKSTAND_OUT[8] = None
 WORKSTAND_OUT[9] = None
 
 # 控制参数
-DIS_1 = 0.4
-VELO_1 = 0.1
-MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
-MAX_WAIT = 3 * 50  # 最大等待时间
-SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
+DIS_1 = 1.3
+VELO_1 = 1.1
+MOVE_SPEED = 0.4478794470690694  # 估算移动时间
+MAX_WAIT = 100  # 最大等待时间
+SELL_WEIGHT = 2.0  # 优先卖给格子被部分占用的
 # 人工势场常熟
-ETA = 300  # 调整斥力大小的常数
-GAMMA = 10  # 调整吸引力大小的常数
-RADIUS = 4  # 定义斥力半径范围
+ETA = 500  # 调整斥力大小的常数
+GAMMA = 5  # 调整吸引力大小的常数
+RADIUS = 2.8 # 定义斥力半径范围
 BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
 # 测试
 DEBUG = False
