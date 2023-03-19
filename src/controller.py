@@ -9,14 +9,9 @@ import logging
 # 环境常量
 MATCH_FRAME = 3*60*50  # 总帧数
 DISMAP = None  # 初始化时更新，记录任意两个工作台间的测算距离/帧数
-ITEMS_BUY = [0, 3000, 4400, 5800, 15400, 17200, 19200, 76000]  # 每个物品的购买价
-ITEMS_SELL = [0, 6000, 7600, 9200, 22500, 25000, 27500, 105000]
+
 ITEMS_NEED = [[] for _ in range(8)]  # 记录收购每个商品的工作台编号
-WORKSTAND_IN = {1: [], 2: [], 3: [], 4: [1, 2], 5: [1, 3],
-                6: [2, 3], 7: [4, 5, 6], 8: [7], 9: list(range(1, 8))}
-WORKSTAND_OUT = {i: i for i in range(1, 8)}
-WORKSTAND_OUT[8] = None
-WORKSTAND_OUT[9] = None
+
 
 # 控制参数
 DIS_1 = 0.4
@@ -40,14 +35,22 @@ class Controller:
         self._dis_robot2robot = None
         self._dis_robot2workstand = None
         self._dis_workstand2workstand = None
+        self._dis_cell2workstand = None
         self._delta_x_r2r = None
         self._delta_y_r2r = None
         self._delta_x_w2w = None
         self._delta_y_w2w = None
         self._delta_x_r2w = None
         self._delta_y_r2w = None
+        self._delta_x_c2w = None
+        self._delta_y_c2w = None
+        self._product_workstand_unlock = np.array([True] * workstands.count)
+        self._receive_cell_unlock = np.array([True] * workstands.count_cell)
+        self._profit_estimation = None
+
         if DEBUG:
             logging.basicConfig(filename='debug.log', level=logging.DEBUG)
+
 
     def init_ITEMS_NEED(self):
         workstands = self._workstands
@@ -95,6 +98,26 @@ class Controller:
 
         self._dis_workstand2workstand = np.sqrt(
             np.power(self._delta_x_w2w, 2) + np.power(self._delta_y_w2w, 2))
+
+        x_workstand = np.array([self._workstands.product_workstand_dict[key][0] for key in self._workstands.product_workstand_dict])
+        y_workstand = np.array([self._workstands.product_workstand_dict[key][1] for key in self._workstands.product_workstand_dict])
+        buy_workstand = np.array([self._workstands.product_workstand_dict[key][2] for key in self._workstands.product_workstand_dict])
+        type_workstand = np.array([self._workstands.product_workstand_dict[key][3] for key in self._workstands.product_workstand_dict])
+
+        x_cell = np.array([self._workstands.receive_cell_dict[key][0] for key in self._workstands.receive_cell_dict])
+        y_cell = np.array([self._workstands.receive_cell_dict[key][1] for key in self._workstands.receive_cell_dict])
+        sell_cell = np.array([self._workstands.receive_cell_dict[key][2] for key in self._workstands.receive_cell_dict])
+        type_cell = np.array([self._workstands.receive_cell_dict[key][3] for key in self._workstands.receive_cell_dict])
+
+        self._delta_x_c2w = x_cell.reshape(-1, 1) - x_workstand.reshape(1, -1)
+        self._delta_y_c2w = y_cell.reshape(-1, 1) - y_workstand.reshape(1, -1)
+        self._dis_cell2workstand = np.sqrt(
+            np.power(self._delta_x_c2w, 2) + np.power(self._delta_y_c2w, 2))
+
+        type_equal = type_cell.reshape(-1, 1) - type_workstand.reshape(1, -1)
+
+        self._profit_estimation = sell_cell.reshape(-1, 1) - buy_workstand.reshape(1, -1)
+        pass
 
     def get_dis_robot2robot(self, idx_robot1, idx_robot2):
         # 机器人到工作台的距离

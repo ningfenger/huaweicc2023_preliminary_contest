@@ -9,6 +9,7 @@ try:
     os.chdir('./src')
 except:
     pass
+import time
 
 def read_map(map_in: Map, robot_group_in: RobotGroup):
     num_robot = 0
@@ -70,7 +71,7 @@ if __name__ == '__main__':
     # logging.info('===================')
     robot_group_obj = RobotGroup()
     map_obj = Map()
-    # time.sleep(20)
+    time.sleep(20)
     read_map(map_obj, robot_group_obj)
     controller = Controller(robot_group_obj, map_obj)
     controller.init_ITEMS_NEED()
