@@ -79,10 +79,10 @@ if __name__ == '__main__':
     controller.cal_dis_workstand2workstand()
     finish()
     while True:
-        frame_id, money = get_info(map_obj, robot_group_obj)
-        if frame_id == '430':
-            aaa = 0
-            pass
+        try:
+            frame_id, money = get_info(map_obj, robot_group_obj)
+        except:
+            break
         controller.cal_dis_robot2workstand()
         controller.cal_dis_robot2robot()
 
