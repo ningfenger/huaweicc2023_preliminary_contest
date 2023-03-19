@@ -24,7 +24,7 @@ VELO_1 = 0.1
 MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
 MAX_WAIT = 3 * 50  # 最大等待时间
 SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
-# 人工势场常熟
+# 人工势场常数
 ETA = 300  # 调整斥力大小的常数
 GAMMA = 10  # 调整吸引力大小的常数
 RADIUS = 4  # 定义斥力半径范围
@@ -55,6 +55,18 @@ class Controller:
             typeID = int(workstands.get_workstand_status(idx)[0])
             for itemID in WORKSTAND_IN[typeID]:
                 ITEMS_NEED[itemID].append(idx)
+
+    def set_control_parameters(self, dis_1:float, velo_1:float, move_speed:float, max_wait:int, sell_weight:float, eta:int, gamma:int, radius:int):
+        DIS_1 = dis_1
+        VELO_1 = velo_1
+        MOVE_SPEED = move_speed  # 估算移动时间
+        MAX_WAIT = max_wait  # 最大等待时间
+        SELL_WEIGHT = sell_weight  # 优先卖给格子被部分占用的
+        # 人工势场常数
+        ETA = eta  # 调整斥力大小的常数
+        GAMMA = gamma  # 调整吸引力大小的常数
+        RADIUS = radius  # 定义斥力半径范围
+
 
     def cal_dis_robot2robot(self):
         # 计算所有机器人两两之间的距离 向量化 每来一帧调用一次

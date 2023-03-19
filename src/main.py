@@ -10,6 +10,21 @@ try:
 except:
     pass
 
+import argparse
+
+
+parser = argparse.ArgumentParser(description='华为软件精英挑战赛2023 调参版')
+parser.add_argument('--dis_1', default=0.4, type=float, help='开始刹车的距离')
+parser.add_argument('--velo_1', default=0.1, type=float, help='刹车时的速度')
+parser.add_argument('--move_speed', default=1 / 4 *
+                    50,  type=float, help='估算移动速度')
+parser.add_argument('--max_wait', default=3*50, type=int, help='最大等待帧数')
+parser.add_argument('--sell_weight', default=1.2, type=float, help='优先生产权重')
+parser.add_argument('--eta', default=0.1, type=int, help='调整斥力大小的常数')
+parser.add_argument('--gamma', default=0.1, type=int, help='调整吸引力大小的常数')
+parser.add_argument('--radius', default=0.1, type=int, help='定义斥力半径范围')
+
+
 def read_map(map_in: Map, robot_group_in: RobotGroup):
     num_robot = 0
     num_line = 0
@@ -68,6 +83,7 @@ def finish():
 if __name__ == '__main__':
     # logging.basicConfig(filename='log/log.log', level=# logging.DEBUG)
     # logging.info('===================')
+    args = parser.parse_args()
     robot_group_obj = RobotGroup()
     map_obj = Map()
     # time.sleep(20)
@@ -77,12 +93,14 @@ if __name__ == '__main__':
     # time.sleep(20)
     # 只需计算一次
     controller.cal_dis_workstand2workstand()
+    controller.set_control_parameters(args.dis_1, args.velo_1, args.move_speed,
+                                      args.max_wait, args.sell_weight, args.eta, args.gamma, args.radius)
     finish()
     while True:
-        frame_id, money = get_info(map_obj, robot_group_obj)
-        if frame_id == '430':
-            aaa = 0
-            pass
+        try:
+            frame_id, money = get_info(map_obj, robot_group_obj)
+        except:
+            break
         controller.cal_dis_robot2workstand()
         controller.cal_dis_robot2robot()
 
