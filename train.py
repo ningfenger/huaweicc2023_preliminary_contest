@@ -15,13 +15,13 @@ def target_function(x1, x2, x3, x4, x5, x6, x7, x8):
     total_score = 0
     DIS_1 = 0.3+x1  # 开始刹车的距离 0.3~1.3
     VELO_1 = 0.1+x2  # 刹车时的速度 0.1~1.1
-    MOVE_SPEED = 1 /(2+x3*0.3)+0. * 50  # 估算移动时间 2~5
-    MAX_WAIT = (2+0.8*x4) * 50  # 最大等待时间 2~10
+    MOVE_SPEED = 1 /(2+3*x3) * 50  # 估算移动时间 2~5
+    MAX_WAIT = (2+8*x4) * 50  # 最大等待时间 2~10
     SELL_WEIGHT = 1+x5  # 优先卖给格子被部分占用的 1~2
     # 人工势场常数
     ETA = 100+400*x6  # 调整斥力大小的常数 100~500
-    GAMMA = 5+1.5*x7  # 调整吸引力大小的常数 5~20
-    RADIUS = 2+0.8*x8  # 定义斥力半径范围 2-10
+    GAMMA = 5+15*x7  # 调整吸引力大小的常数 5~20
+    RADIUS = 2+8*x8  # 定义斥力半径范围 2-10
     print(f'参数: --dis_1 {DIS_1} --velo_1 {VELO_1} --move_speed {MOVE_SPEED} --max_wait {MAX_WAIT} \
         --sell_weight {SELL_WEIGHT} --eta {ETA} --gamma {GAMMA} --radius {RADIUS}')
     for map in maps:
@@ -37,7 +37,7 @@ def target_function(x1, x2, x3, x4, x5, x6, x7, x8):
 
 
 def train(num_iterations=100, learning_rate = 0.001):
-    print(f'num_iterations:{num_iterations}, learning_rate:{0.001}')
+    print(f'num_iterations:{num_iterations}, learning_rate:{learning_rate}')
     # 定义可行解的范围（最小值和最大值）
     boundaries = [(0, 1.0)]*8
     # 定义初始参数
