@@ -56,7 +56,7 @@ class Controller:
             for itemID in WORKSTAND_IN[typeID]:
                 ITEMS_NEED[itemID].append(idx)
 
-    def set_control_parameters(self, dis_1:float, velo_1:float, move_speed:float, max_wait:int, sell_weight:float, eta:int, gamma:int, radius:int):
+    def set_control_parameters(self, dis_1:float, velo_1:float, move_speed:float, max_wait:int, sell_weight:float, eta:float, gamma:float, radius:float):
         DIS_1 = dis_1
         VELO_1 = velo_1
         MOVE_SPEED = move_speed  # 估算移动时间

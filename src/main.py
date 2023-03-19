@@ -18,11 +18,11 @@ parser.add_argument('--dis_1', default=0.4, type=float, help='开始刹车的距
 parser.add_argument('--velo_1', default=0.1, type=float, help='刹车时的速度')
 parser.add_argument('--move_speed', default=1 / 4 *
                     50,  type=float, help='估算移动速度')
-parser.add_argument('--max_wait', default=3*50, type=int, help='最大等待帧数')
+parser.add_argument('--max_wait', default=3*50, type=float, help='最大等待帧数')
 parser.add_argument('--sell_weight', default=1.2, type=float, help='优先生产权重')
-parser.add_argument('--eta', default=0.1, type=int, help='调整斥力大小的常数')
-parser.add_argument('--gamma', default=0.1, type=int, help='调整吸引力大小的常数')
-parser.add_argument('--radius', default=0.1, type=int, help='定义斥力半径范围')
+parser.add_argument('--eta', default=300, type=float, help='调整斥力大小的常数')
+parser.add_argument('--gamma', default=10, type=float, help='调整吸引力大小的常数')
+parser.add_argument('--radius', default=4, type=float, help='定义斥力半径范围')
 
 
 def read_map(map_in: Map, robot_group_in: RobotGroup):
@@ -94,7 +94,7 @@ if __name__ == '__main__':
     # 只需计算一次
     controller.cal_dis_workstand2workstand()
     controller.set_control_parameters(args.dis_1, args.velo_1, args.move_speed,
-                                      args.max_wait, args.sell_weight, args.eta, args.gamma, args.radius)
+                                      int(args.max_wait), args.sell_weight, args.eta, args.gamma, args.radius)
     finish()
     while True:
         try:
