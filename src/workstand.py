@@ -41,7 +41,7 @@ class Map:
         item_product = WORKSTAND_OUT[num_type]
         if item_product is not None:
             buy_price = ITEMS_BUY[item_product]
-            self.product_workstand_dict[self.count] = tuple([x, y, buy_price, item_product])  # 记录这个工作台产物的购买价格
+            self.product_workstand_dict[self.count] = tuple([x, y, buy_price, item_product, self.count])  # 记录这个工作台产物的购买价格
 
         else:
             # 此工作台不生产任何物品
@@ -97,6 +97,10 @@ class Map:
             return copy.deepcopy(self._workstand[:, [1, 2]])
         else:
             return copy.deepcopy(self._workstand[idx_workstand, [1, 2]])
+
+    def get_id_workstand_of_cell(self, key_cell):
+        _, _, _, _, idx_workstand = self.receive_cell_dict[key_cell]
+        return  idx_workstand
 
     def __len__(self):
         return self.count

@@ -7,11 +7,10 @@ import math
 import logging
 
 # 环境常量
-MATCH_FRAME = 3*60*50  # 总帧数
+MATCH_FRAME = 3 * 60 * 50  # 总帧数
 DISMAP = None  # 初始化时更新，记录任意两个工作台间的测算距离/帧数
 
 ITEMS_NEED = [[] for _ in range(8)]  # 记录收购每个商品的工作台编号
-
 
 # 控制参数
 DIS_1 = 0.4
@@ -23,9 +22,16 @@ SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
 ETA = 300  # 调整斥力大小的常数
 GAMMA = 10  # 调整吸引力大小的常数
 RADIUS = 4  # 定义斥力半径范围
-BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
+BUY_WEIGHT = [1] * 4 + [1] * 3 + [1]  # 购买优先级，优先购买高级商品
 # 测试
 DEBUG = False
+
+
+def get_dx_dy_d(a, b):
+    dx = b[:, 0].reshape(1, -1) - a[:, 0].reshape(-1, 1)
+    dy = b[:, 1].reshape(1, -1) - a[:, 1].reshape(-1, 1)
+    d = np.sqrt(np.power(dx, 2) + np.power(dy, 2))
+    return dx, dy, d
 
 
 class Controller:
@@ -48,13 +54,15 @@ class Controller:
         self._delta_y_r2c = None
         self._delta_x_c2w = None
         self._delta_y_c2w = None
+        self._cooldown_robot2workstand = np.zeros((4, self._workstands.count))
+        self._cooldown_workstand2cell = np.zeros((self._workstands.count, self._workstands.count_cell))
+        self._time_robot2workstand2cell = np.zeros((4, self._workstands.count, self._workstands.count_cell))
         self._product_workstand_unlock = np.array([True] * workstands.count)
         self._receive_cell_unlock = np.array([True] * workstands.count_cell)
         self._profit_estimation = None
 
         if DEBUG:
             logging.basicConfig(filename='debug.log', level=logging.DEBUG)
-
 
     def init_ITEMS_NEED(self):
         workstands = self._workstands
@@ -69,12 +77,7 @@ class Controller:
         # 通过get_dis_robot2robot(self, idx_robot, idx_workstand)调用
         loc_robots1 = self._robots.get_loc(-1)
         loc_robots2 = self._robots.get_loc(-1)
-        self._delta_x_r2r = loc_robots1[:,
-                                        0].reshape(-1, 1) - loc_robots2[:, 0].reshape(1, -1)
-        self._delta_y_r2r = loc_robots1[:,
-                                        1].reshape(-1, 1) - loc_robots2[:, 1].reshape(1, -1)
-        self._dis_robot2robot = np.sqrt(
-            np.power(self._delta_x_r2r, 2) + np.power(self._delta_y_r2r, 2))
+        self._delta_x_r2r, self._delta_y_r2r, self._dis_robot2robot = get_dx_dy_d(loc_robots1, loc_robots2)
 
     def cal_dis_robot2workstand(self):
         # 计算所有机器人到所有工作站的距离 向量化 每来一帧调用一次
@@ -82,15 +85,10 @@ class Controller:
         # 通过get_dis_robot2workstand(self, idx_robot, idx_workstand)调用
         loc_robots = self._robots.get_loc(-1)
         loc_workstands = self._workstands.get_loc(-1)
-        self._delta_x_r2w = loc_robots[:, 0].reshape(
-            -1, 1) - loc_workstands[:, 0].reshape(1, -1)
-        self._delta_y_r2w = loc_robots[:, 1].reshape(
-            -1, 1) - loc_workstands[:, 1].reshape(1, -1)
-        self._dis_robot2workstand = np.sqrt(
-            np.power(self._delta_x_r2w, 2) + np.power(self._delta_y_r2w, 2))
+        self._delta_x_r2w, self._delta_y_r2w, self._dis_robot2workstand = get_dx_dy_d(loc_robots, loc_workstands)
 
     def cal_dis_workstand2workstand(self):
-        # 计算所有工作站两两之间的距离 向量化 只需要在初始化调用一次
+        # 计算所有工作站两两之间的距离 所有格子到工作站的距离 向量化 只需要在初始化调用一次
         # 距离表存在类变量中
         # 通过get_dis_workstand2workstand(self, idx_workstand1, idx_workstand2)调用
         loc_workstands1 = self._workstands.get_loc(-1)
@@ -103,20 +101,21 @@ class Controller:
         self._dis_workstand2workstand = np.sqrt(
             np.power(self._delta_x_w2w, 2) + np.power(self._delta_y_w2w, 2))
 
-        x_workstand = np.array([self._workstands.product_workstand_dict[key][0] for key in self._workstands.product_workstand_dict])
-        y_workstand = np.array([self._workstands.product_workstand_dict[key][1] for key in self._workstands.product_workstand_dict])
-        buy_workstand = np.array([self._workstands.product_workstand_dict[key][2] for key in self._workstands.product_workstand_dict])
-        type_workstand = np.array([self._workstands.product_workstand_dict[key][3] for key in self._workstands.product_workstand_dict])
+        loc_workstand = np.array(
+            [[self._workstands.product_workstand_dict[key][0], self._workstands.product_workstand_dict[key][1]] for key
+             in self._workstands.product_workstand_dict])
+        buy_workstand = np.array(
+            [self._workstands.product_workstand_dict[key][2] for key in self._workstands.product_workstand_dict])
+        type_workstand = np.array(
+            [self._workstands.product_workstand_dict[key][3] for key in self._workstands.product_workstand_dict])
 
-        x_cell = np.array([self._workstands.receive_cell_dict[key][0] for key in self._workstands.receive_cell_dict])
-        y_cell = np.array([self._workstands.receive_cell_dict[key][1] for key in self._workstands.receive_cell_dict])
+        loc_cell = np.array(
+            [[self._workstands.receive_cell_dict[key][0], self._workstands.receive_cell_dict[key][1]] for key in
+             self._workstands.receive_cell_dict])
         sell_cell = np.array([self._workstands.receive_cell_dict[key][2] for key in self._workstands.receive_cell_dict])
         type_cell = np.array([self._workstands.receive_cell_dict[key][3] for key in self._workstands.receive_cell_dict])
 
-        self._delta_x_c2w = x_cell.reshape(-1, 1) - x_workstand.reshape(1, -1)
-        self._delta_y_c2w = y_cell.reshape(-1, 1) - y_workstand.reshape(1, -1)
-        self._dis_cell2workstand = np.sqrt(
-            np.power(self._delta_x_c2w, 2) + np.power(self._delta_y_c2w, 2))
+        self._delta_x_c2w, self._delta_y_c2w, self._dis_cell2workstand = get_dx_dy_d(loc_cell, loc_workstand)
 
         type_equal = type_cell.reshape(-1, 1) - type_workstand.reshape(1, -1)
 
@@ -126,18 +125,33 @@ class Controller:
 
     def cal_dis_robot2workstand2cell(self):
         loc_robots = self._robots.get_loc(-1)
-        x_cell = np.array(
-            [self._workstands.receive_cell_dict[key][0] for key in self._workstands.receive_cell_dict])
-        y_cell = np.array(
-            [self._workstands.receive_cell_dict[key][1] for key in self._workstands.receive_cell_dict])
+        loc_cell = np.array(
+            [[self._workstands.receive_cell_dict[key][1], self._workstands.receive_cell_dict[key][0]] for key in
+             self._workstands.receive_cell_dict])
 
-        self._delta_x_r2c = loc_robots[:, 0].reshape(
-            -1, 1) - x_cell.reshape(1, -1)
-        self._delta_y_r2c = loc_robots[:, 1].reshape(
-            -1, 1) - y_cell.reshape(1, -1)
-        self._dis_robot2cell = np.sqrt(
-            np.power(self._delta_x_r2c, 2) + np.power(self._delta_y_r2c, 2))
-        self._dis_robot2workstand2cell = self._dis_robot2workstand[:, :, np.newaxis] + self._dis_cell2workstand.T[np.newaxis, :, :]
+        self._delta_x_r2c, self._delta_y_r2c, self._dis_robot2cell = get_dx_dy_d(loc_robots, loc_cell)
+
+        self._dis_robot2workstand2cell = self._dis_robot2workstand[:, :, np.newaxis] + self._dis_cell2workstand.T[
+                                                                                       np.newaxis, :, :]
+
+    def cal_cooldown(self):
+        # 计算机器人-工作台(所有工作台)的冷却时间以及工作台-格子(所有格子)的冷却时间
+        # 分两段计算 因为移动过程也是两段，要分两段取max
+
+        for key_workstand in range(self._workstands.count):
+            idx_workstand = key_workstand
+            self._cooldown_robot2workstand[:, key_workstand] = self._workstands._workstand[idx_workstand, feature_waiting_time_w]
+
+        for key_cell in range(self._workstands.count_cell):
+            idx_workstand = self._workstands.get_id_workstand_of_cell(key_cell)
+            self._cooldown_workstand2cell[:, key_cell] = self._workstands._workstand[idx_workstand, feature_waiting_time_w]
+
+
+    def cal_time(self):
+        time_robot2workstand = np.maximum(self._dis_robot2workstand / 5.9 * 20, self._cooldown_robot2workstand)
+        time_workstand2cell = np.maximum(self._dis_cell2workstand.T / 5.9 * 20, self._cooldown_workstand2cell)
+        self._time_robot2workstand2cell = time_robot2workstand[:, :, np.newaxis] + time_workstand2cell[np.newaxis, :, :]
+
     def get_dis_robot2robot(self, idx_robot1, idx_robot2):
         # 机器人到工作台的距离
         return copy.deepcopy(self._dis_robot2robot[idx_robot1, idx_robot2])
@@ -164,10 +178,10 @@ class Controller:
                 # 计算机器人之间的距离
                 distance_robot = self.get_dis_robot2robot(idx_robot, idx_other)
 
-                # 其他指向自己的方向余弦
+                # 自己指向其他的方向余弦
                 dx_robot = self._delta_x_r2r[idx_robot,
                                              idx_other] / distance_robot
-                # 其他指向自己的方向余弦
+                # 自己指向其他的方向余弦
                 dy_robot = self._delta_y_r2r[idx_robot,
                                              idx_other] / distance_robot
 
@@ -179,27 +193,24 @@ class Controller:
                     [math.cos(theta_other), math.sin(theta_other)])
                 ang_robot = math.acos(
                     np.dot(dircos_robot, np.array([-dx_robot, -dy_robot])))
-                try:
-                    ang_other = math.acos(
-                        np.dot(dircos_other, np.array([dx_robot, dy_robot])))
-                except:
-                    raise Exception([self._delta_x_r2r[idx_robot, idx_other],
-                                     self._delta_y_r2r[idx_robot, idx_other],
-                                     distance_robot])
+
+                ang_other = math.acos(
+                    np.dot(dircos_other, np.array([dx_robot, dy_robot])))
+
                 # 如果机器人之间的距离小于一定半径范围，则计算斥力
                 if distance_robot < RADIUS and (ang_robot < math.pi * 0.2 or ang_other < math.pi * 0.2):
                     repulsive_force = 0.5 * ETA * \
-                        ((1.0 / distance_robot) - (1.0 / RADIUS)) ** 2
-                    repulsive_field[0] += repulsive_force * dx_robot
-                    repulsive_field[1] += repulsive_force * dy_robot
+                                      ((1.0 / distance_robot) - (1.0 / RADIUS)) ** 2
+                    repulsive_field[0] -= repulsive_force * dx_robot
+                    repulsive_field[1] -= repulsive_force * dy_robot
 
         # 计算机器人到目标点的吸引力
         distance_r2w = self.get_dis_robot2workstand(idx_robot, idx_workstand)
 
-        dx_r2w = -self._delta_x_r2w[idx_robot,
-                                    idx_workstand] / distance_r2w  # 加负号后自己指向工作台
-        dy_r2w = -self._delta_y_r2w[idx_robot,
-                                    idx_workstand] / distance_r2w  # 加负号后自己指向工作台
+        dx_r2w = self._delta_x_r2w[idx_robot,
+                                   idx_workstand] / distance_r2w  # 自己指向工作台
+        dy_r2w = self._delta_y_r2w[idx_robot,
+                                   idx_workstand] / distance_r2w  # 自己指向工作台
 
         attractive_force = 0.5 * GAMMA * distance_r2w ** 2
         attractive_field[0] = attractive_force * dx_r2w
@@ -297,8 +308,8 @@ class Controller:
                     frame_move_to_sell)  # 时间损耗
                 sell_weight = SELL_WEIGHT if sell_material else 1
                 radio = (
-                    ITEMS_SELL[workstand_type] * time_rate - ITEMS_BUY[
-                        workstand_type]) / total_frame*sell_weight*buy_weight
+                                ITEMS_SELL[workstand_type] * time_rate - ITEMS_BUY[
+                            workstand_type]) / total_frame * sell_weight * buy_weight
                 if radio > max_radio:
                     max_radio = radio
                     self._robots.robots_plan[idx_robot] = [
@@ -429,7 +440,7 @@ class Controller:
         self.cal_cooldown()
 
         # 计算总耗时
-
+        self.cal_time()
         # 计算利率
 
         # 从未被锁定的组合中依次选取最高
