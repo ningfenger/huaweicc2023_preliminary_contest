@@ -24,15 +24,15 @@ DEBUG = False
 
 class Controller:
     # 控制参数
-    DIS_1 = 0.4
-    VELO_1 = 0.1
+    DIS_1 = 1.3
+    VELO_1 = 1.1
     MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
     MAX_WAIT = 3 * 50  # 最大等待时间
     SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
     # 人工势场常数
     ETA = 300  # 调整斥力大小的常数
     GAMMA = 10  # 调整吸引力大小的常数
-    RADIUS = 4  # 定义斥力半径范围
+    RADIUS = 3  # 定义斥力半径范围
     BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
     def __init__(self, robots: RobotGroup, workstands: Map):
         self._robots = robots
@@ -319,14 +319,8 @@ class Controller:
         return False
 
     def control(self, frame_id: int):
-        # 没写完
-
-        # 高鹏的三维矩阵筛选
-        # 查看可购买的工作台
-
-        # 查看可收购的工作台
-
         idx_robot = 0
+        sell_out_list = [] # 等待处理预售的机器人列表
         while idx_robot < 4:
             robot_status = int(self._robots.get_status(
                 feature_status_r, idx_robot))
@@ -402,7 +396,7 @@ class Controller:
                     # 可以购买
                     if self._robots.sell(idx_robot):  # 防止出售失败
                         # 取消预定
-                        self.set_pro_sell(idx_robot, False)
+                        sell_out_list.append(idx_robot)
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.FREE_STATUS)  # 切换为空闲
                         # logging.debug(f"{idx_robot}->wait")
@@ -412,3 +406,5 @@ class Controller:
                             feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 购买失败说明位置不对，切换为 【出售途中】
                         continue
             idx_robot += 1
+        for idx_robot in sell_out_list:
+            self.set_pro_sell(idx_robot, False)
