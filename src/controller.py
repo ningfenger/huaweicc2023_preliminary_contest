@@ -57,10 +57,15 @@ class Controller:
         self._cooldown_robot2workstand = np.zeros((4, self._workstands.count))
         self._cooldown_workstand2cell = np.zeros((self._workstands.count, self._workstands.count_cell))
         self._time_robot2workstand2cell = np.zeros((4, self._workstands.count, self._workstands.count_cell))
-        self._product_workstand_unlock = np.array([True] * workstands.count)
-        self._receive_cell_unlock = np.array([True] * workstands.count_cell)
-        self._profit_estimation = None
+        self._product_workstand_unlock = np.array([True] * workstands.count, dtype=np.bool)
+        self._receive_cell_unlock = np.array([True] * workstands.count_cell, dtype=np.bool)
+        self._robot_unlock = np.array([True] * 4, dtype=np.bool)
+        self._profit_estimation = np.zeros((4, self._workstands.count, self._workstands.count_cell))
+        self._profit_rate_estimation = np.zeros((4, self._workstands.count, self._workstands.count_cell))
 
+        self._index_tran_r = [-1] * 4
+        self._index_tran_w = [-1] * self._workstands.count
+        self._index_tran_c = [-1] * self._workstands.count_cell
         if DEBUG:
             logging.basicConfig(filename='debug.log', level=logging.DEBUG)
 
@@ -117,10 +122,12 @@ class Controller:
 
         self._delta_x_c2w, self._delta_y_c2w, self._dis_cell2workstand = get_dx_dy_d(loc_cell, loc_workstand)
 
-        type_equal = type_cell.reshape(-1, 1) - type_workstand.reshape(1, -1)
+        type_equal = type_cell.reshape(1, -1) - type_workstand.reshape(-1, 1)
 
-        self._profit_estimation = sell_cell.reshape(-1, 1) - buy_workstand.reshape(1, -1)
-        self._profit_estimation[type_equal != 0] = -np.inf
+        temp_profit_estimation = sell_cell.reshape(1, -1) - buy_workstand.reshape(-1, 1)
+        temp_profit_estimation[type_equal != 0] = -np.inf
+        for i in range(4):
+            self._profit_estimation[i, :, :] = temp_profit_estimation
         pass
 
     def cal_dis_robot2workstand2cell(self):
@@ -151,6 +158,19 @@ class Controller:
         time_robot2workstand = np.maximum(self._dis_robot2workstand / 5.9 * 20, self._cooldown_robot2workstand)
         time_workstand2cell = np.maximum(self._dis_cell2workstand.T / 5.9 * 20, self._cooldown_workstand2cell)
         self._time_robot2workstand2cell = time_robot2workstand[:, :, np.newaxis] + time_workstand2cell[np.newaxis, :, :]
+
+    def cal_profit_rate(self):
+        self._profit_rate_estimation = self._profit_estimation / self._time_robot2workstand2cell
+
+    def select(self):
+        self._index_tran_r = np.where(self._robot_unlock)
+        self._index_tran_w = np.where(self._product_workstand_unlock)
+        self._index_tran_c = np.where(self._receive_cell_unlock)
+        temp = self._profit_rate_estimation[self._robot_unlock, :, :]
+        temp = temp[:, self._product_workstand_unlock, :]
+        profit_rate_unlock = temp[:, :, self._receive_cell_unlock]
+        pass
+
 
     def get_dis_robot2robot(self, idx_robot1, idx_robot2):
         # 机器人到工作台的距离
@@ -441,9 +461,12 @@ class Controller:
 
         # 计算总耗时
         self.cal_time()
+
         # 计算利率
+        self.cal_profit_rate()
 
         # 从未被锁定的组合中依次选取最高
+        self.select()
         idx_robot = 0
         while idx_robot < 4:
             robot_status = int(self._robots.get_status(
