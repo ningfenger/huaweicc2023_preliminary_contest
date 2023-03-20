@@ -109,6 +109,7 @@ class Map:
         if idx_workstand == -1:
             return copy.deepcopy(self._workstand[:, feature_id])
         else:
+
             return copy.deepcopy(self._workstand[idx_workstand, feature_id])
 
     def __len__(self):

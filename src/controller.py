@@ -168,7 +168,7 @@ class Controller:
 
             if int(material) & (1 << material_receive):
                 # 此格子已有物品
-                self._sell_cell_dynamic[key_cell] = -np.inf  # 负无穷
+                self._sell_cell_dynamic[key_cell] = -1000000  # 负无穷
             else:
                 # 此格子没有物品
                 if int(material):
@@ -192,7 +192,7 @@ class Controller:
                 self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand] * (1 - 0.1 * material_count)  # 负无穷
             else:
                 # 产品格没有物品
-                self._buy_workstand_dynamic[key_workstand] = np.inf  # 收购价设置为正无穷
+                self._buy_workstand_dynamic[key_workstand] = 1000000  # 收购价设置为正无穷
 
         # 广播计算利润
         temp_profit_estimation = self._sell_cell_dynamic.reshape(1, -1) - self._buy_workstand_dynamic.reshape(-1, 1)
@@ -229,7 +229,7 @@ class Controller:
                 waiting_time = 0
             elif int(self._workstands.get_status(feature_waiting_time_w, idx_workstand)) == -1:
                 # 没产品且不在生产中
-                waiting_time = np.inf
+                waiting_time = 10000
             else:
                 waiting_time = int(self._workstands.get_status(feature_waiting_time_w, idx_workstand))
 
@@ -251,7 +251,7 @@ class Controller:
                     # 0 在阻塞，不是冷却时间为0
                     # workstand_type= self._workstands.get_status(feature_num_type_w, idx_workstand)
                     # waiting_time = cool_down_time_max[workstand_type]
-                    waiting_time = np.inf  # 冷却时间设为无穷
+                    waiting_time = 100000  # 冷却时间设为无穷
 
             else:
                 # 还可以放物品
@@ -624,7 +624,7 @@ class Controller:
                 target_workstand = self._robots.get_status(feature_target_buy_r, idx_robot)
                 target_sell_cell = self._robots.get_status(feature_target_sell_r, idx_robot)
                 target_sell_workstand, _ = self._workstands.get_id_workstand_of_cell(target_sell_cell)
-                product_status = int(self._workstands.get_status(feature_product_state_w, target_workstand))
+                product_status = int(self._workstands.get_status(feature_product_state_w, int(target_workstand)))
                 # 如果在等待，提前转向
                 if product_status == 1:  # 这里判定是否生产完成可以购买
                     # 可以购买
@@ -634,7 +634,7 @@ class Controller:
                             feature_target_r, idx_robot, target_sell_workstand)  # 更新目标到卖出地点
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 切换为 【出售途中】
-                        # logging.debug(f"{idx_robot}->way to sell")
+                        # logging.debug(f"{idx_robot}->MOVE_TO_SELL")
                         continue
                     else:
                         self._robots.set_status_item(
