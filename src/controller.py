@@ -18,22 +18,22 @@ WORKSTAND_OUT = {i: i for i in range(1, 8)}
 WORKSTAND_OUT[8] = None
 WORKSTAND_OUT[9] = None
 
-# 控制参数
-DIS_1 = 1.3
-VELO_1 = 1.1
-MOVE_SPEED = 1/4*50  # 估算移动时间
-MAX_WAIT = 3*50  # 最大等待时间
-SELL_WEIGHT = 1 # 优先卖给格子被部分占用的
-# 人工势场常熟
-ETA = 300  # 调整斥力大小的常数
-GAMMA = 10  # 调整吸引力大小的常数
-RADIUS = 3  # 定义斥力半径范围
-BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
 # 测试
 DEBUG = False
 
 
 class Controller:
+    # 控制参数
+    DIS_1 = 0.4
+    VELO_1 = 0.1
+    MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
+    MAX_WAIT = 3 * 50  # 最大等待时间
+    SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
+    # 人工势场常数
+    ETA = 300  # 调整斥力大小的常数
+    GAMMA = 10  # 调整吸引力大小的常数
+    RADIUS = 4  # 定义斥力半径范围
+    BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
     def __init__(self, robots: RobotGroup, workstands: Map):
         self._robots = robots
         self._workstands = workstands
@@ -55,6 +55,18 @@ class Controller:
             typeID = int(workstands.get_workstand_status(idx)[0])
             for itemID in WORKSTAND_IN[typeID]:
                 ITEMS_NEED[itemID].append(idx)
+
+    def set_control_parameters(self, dis_1:float, velo_1:float, move_speed:float, max_wait:int, sell_weight:float, eta:float, gamma:float, radius:float):
+        self.DIS_1 = dis_1
+        self.VELO_1 = velo_1
+        self.MOVE_SPEED = move_speed  # 估算移动时间
+        self.MAX_WAIT = max_wait  # 最大等待时间
+        self.SELL_WEIGHT = sell_weight  # 优先卖给格子被部分占用的
+        # 人工势场常数
+        self.ETA = eta  # 调整斥力大小的常数
+        self.GAMMA = gamma  # 调整吸引力大小的常数
+        self.RADIUS = radius  # 定义斥力半径范围
+
 
     def cal_dis_robot2robot(self):
         # 计算所有机器人两两之间的距离 向量化 每来一帧调用一次
@@ -145,9 +157,9 @@ class Controller:
                                      self._delta_y_r2r[idx_robot, idx_other],
                                      distance_robot])
                 # 如果机器人之间的距离小于一定半径范围，则计算斥力
-                if distance_robot < RADIUS and (ang_robot < math.pi * 0.2 or ang_other < math.pi * 0.2):
-                    repulsive_force = 0.5 * ETA * \
-                        ((1.0 / distance_robot) - (1.0 / RADIUS)) ** 2
+                if distance_robot < self.RADIUS and (ang_robot < math.pi * 0.2 or ang_other < math.pi * 0.2):
+                    repulsive_force = 0.5 * self.ETA * \
+                        ((1.0 / distance_robot) - (1.0 / self.RADIUS)) ** 2
                     repulsive_field[0] += repulsive_force * dx_robot
                     repulsive_field[1] += repulsive_force * dy_robot
 
@@ -159,7 +171,7 @@ class Controller:
         dy_r2w = -self._delta_y_r2w[idx_robot,
                                     idx_workstand] / distance_r2w  # 加负号后自己指向工作台
 
-        attractive_force = 0.5 * GAMMA * distance_r2w ** 2
+        attractive_force = 0.5 * self.GAMMA * distance_r2w ** 2
         attractive_field[0] = attractive_force * dx_r2w
         attractive_field[1] = attractive_force * dy_r2w
 
@@ -246,11 +258,11 @@ class Controller:
             if int(self._workstands.get_product_pro(idx_workstand)) == 1:  # 被预定了,后序考虑优化
                 continue
             frame_wait_buy = product_time if product_status == 0 else 0  # 生产所需时间，如果已有商品则为0
-            if frame_wait_buy > MAX_WAIT:
+            if frame_wait_buy > self.MAX_WAIT:
                 continue
             frame_move_to_buy = self.get_dis_robot2workstand(
-                idx_robot, idx_workstand) * MOVE_SPEED
-            buy_weight = BUY_WEIGHT[workstand_type]
+                idx_robot, idx_workstand) * self.MOVE_SPEED
+            buy_weight = self.BUY_WEIGHT[workstand_type]
             # 需要这个产品的工作台
             for idx_worksand_to_sell in ITEMS_NEED[workstand_type]:
                 sell_type, sell_product_time, sell_material, sell_product_status = map(
@@ -275,7 +287,7 @@ class Controller:
                     # else:
                     #     frame_wait_sell = sell_product_time
                 frame_move_to_sell = self.get_dis_workstand2workstand(
-                    idx_workstand, idx_worksand_to_sell) * MOVE_SPEED
+                    idx_workstand, idx_worksand_to_sell) * self.MOVE_SPEED
                 frame_buy = max(frame_move_to_buy,
                                 frame_wait_buy)  # 购买时间
                 # frame_sell = max(frame_move_to_sell,
@@ -285,7 +297,7 @@ class Controller:
                     continue
                 time_rate = self.get_time_rate(
                     frame_move_to_sell)  # 时间损耗
-                sell_weight = SELL_WEIGHT if sell_material else 1
+                sell_weight = self.SELL_WEIGHT if sell_material else 1
                 radio = (
                     ITEMS_SELL[workstand_type] * time_rate - ITEMS_BUY[
                         workstand_type]) / total_frame*sell_weight*buy_weight
@@ -326,8 +338,8 @@ class Controller:
                 # 【购买途中】
 
                 if self.get_dis_robot2workstand(idx_robot,
-                                                self._robots.get_status(feature_target_r, idx_robot)) < DIS_1:
-                    self.move2loc(idx_robot, VELO_1)
+                                                self._robots.get_status(feature_target_r, idx_robot)) < self.DIS_1:
+                    self.move2loc(idx_robot, self.VELO_1)
                 else:
                     self.move2loc(idx_robot, 6)
 
@@ -363,8 +375,8 @@ class Controller:
                 # 移动
                 # 判断距离是否够近
                 if self.get_dis_robot2workstand(idx_robot,
-                                                self._robots.get_status(feature_target_r, idx_robot)) < DIS_1:
-                    self.move2loc(idx_robot, VELO_1)
+                                                self._robots.get_status(feature_target_r, idx_robot)) < self.DIS_1:
+                    self.move2loc(idx_robot, self.VELO_1)
                 else:
                     self.move2loc(idx_robot, 6)
 
