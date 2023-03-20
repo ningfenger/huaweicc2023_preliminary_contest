@@ -24,15 +24,15 @@ DEBUG = False
 
 class Controller:
     # 控制参数
-    DIS_1 = 0.4
-    VELO_1 = 0.1
+    DIS_1 = 1.3
+    VELO_1 = 1.1
     MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
     MAX_WAIT = 3 * 50  # 最大等待时间
     SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
     # 人工势场常数
     ETA = 300  # 调整斥力大小的常数
     GAMMA = 10  # 调整吸引力大小的常数
-    RADIUS = 4  # 定义斥力半径范围
+    RADIUS = 3  # 定义斥力半径范围
     BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
     def __init__(self, robots: RobotGroup, workstands: Map):
         self._robots = robots
@@ -215,6 +215,38 @@ class Controller:
         sqrt_num = math.sqrt(1 - (1 - frame_sell / 9000) ** 2)
         return (1 - sqrt_num) * 0.2 + 0.8
 
+    def set_pro_buy(self, idx_robot: int, buy=True):
+        # 设置预定
+        target_walkstand, _ = self._robots.robots_plan[idx_robot]
+        # 预定工作台
+        if buy:
+            workstand_type = int(
+                self._workstands.get_workstand_status(target_walkstand)[0])
+            if not workstand_type in [1, 2, 3]:  # 123不锁
+                self._workstands.set_product_pro(target_walkstand, 1)
+        else:
+            self._workstands.set_product_pro(target_walkstand, 0)
+
+    def set_pro_sell(self, idx_robot: int, sell=True):
+        # 设置预售
+        target_walkstand, next_walkstand = self._robots.robots_plan[idx_robot]
+        material_pro = int(
+                self._workstands.get_material_pro(next_walkstand))
+        workstand_types = int(
+            self._workstands.get_workstand_status(target_walkstand)[0])
+        next_walkstand_type= int(
+            self._workstands.get_workstand_status(next_walkstand)[0])
+        if next_walkstand_type in [8,9]:
+            return
+        if sell:
+            self._workstands.set_material_pro(
+                next_walkstand, material_pro + (1 << workstand_types))
+        else:
+            self._workstands.set_material_pro(
+                next_walkstand, material_pro - (1 << workstand_types))
+            
+
+
     def choise(self, frame_id: int, idx_robot: int) -> bool:
         # 进行一次决策
         max_radio = 0  # 记录最优性价比
@@ -279,28 +311,16 @@ class Controller:
             self._robots.set_status_item(
                 feature_target_r, idx_robot, target_walkstand)
             # 预定工作台
-            self._workstands.set_product_pro(target_walkstand, 1)
-
-            material_pro = int(
-                self._workstands.get_material_pro(next_walkstand))
-            workstand_types = int(
-                self._workstands.get_workstand_status(target_walkstand)[0])
-            self._workstands.set_material_pro(
-                next_walkstand, material_pro + (1 << workstand_types))
+            self.set_pro_buy(idx_robot)
+            self.set_pro_sell(idx_robot)
             self._robots.set_status_item(
                 feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)
             return True
         return False
 
     def control(self, frame_id: int):
-        # 没写完
-
-        # 高鹏的三维矩阵筛选
-        # 查看可购买的工作台
-
-        # 查看可收购的工作台
-
         idx_robot = 0
+        sell_out_list = [] # 等待处理预售的机器人列表
         while idx_robot < 4:
             robot_status = int(self._robots.get_status(
                 feature_status_r, idx_robot))
@@ -332,8 +352,7 @@ class Controller:
                 if product_status == 1:  # 这里判定是否生产完成可以购买 不是真的1
                     # 可以购买
                     if self._robots.buy(idx_robot):  # 防止购买失败
-                        self._workstands.set_product_pro(
-                            target_walkstand, 0)  # 取消预购
+                        self.set_pro_buy(idx_robot, False)
                         self._robots.set_status_item(
                             feature_target_r, idx_robot, next_walkstand)  # 更新目标到卖出地点
                         self._robots.set_status_item(
@@ -377,10 +396,7 @@ class Controller:
                     # 可以购买
                     if self._robots.sell(idx_robot):  # 防止出售失败
                         # 取消预定
-                        material_pro = int(
-                            self._workstands.get_material_pro(target_walkstand))
-                        self._workstands.set_material_pro(
-                            target_walkstand, material_pro - (1 << material_type))
+                        sell_out_list.append(idx_robot)
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.FREE_STATUS)  # 切换为空闲
                         # logging.debug(f"{idx_robot}->wait")
@@ -390,3 +406,5 @@ class Controller:
                             feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 购买失败说明位置不对，切换为 【出售途中】
                         continue
             idx_robot += 1
+        for idx_robot in sell_out_list:
+            self.set_pro_sell(idx_robot, False)
