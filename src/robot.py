@@ -41,7 +41,7 @@ class RobotGroup:
         # 自定义
         # 10-status, 11-target, 12-target_theta
         self.group_info[idx_robot, :] = np.array(
-            [-1, x, y] + [0] * 12)
+            [-1, x, y] + [0] * 10 + [-1] * 2)
 
     def update_robot(self, id_robot, state_str):
         # 后面读地图 更新工作台状态

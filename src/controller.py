@@ -173,10 +173,11 @@ class Controller:
                 # 此格子没有物品
                 if int(material):
                     # 邻居格子有物品 此格子无物品
-                    self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell] * 1.1
+                    self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell] * (1 + 0.1 * count_ones(int(material)))
                 else:
                     # 都没有 不动
                     self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell]
+            
 
         # 计算工作台采购价
         # 如果此工作台产出格子没有物品，其收购价设置为Inf
@@ -194,11 +195,13 @@ class Controller:
                 # 产品格没有物品
                 self._buy_workstand_dynamic[key_workstand] = 1000000  # 收购价设置为正无穷
 
+            if int(self._workstands.get_status(feature_num_type_w, key_workstand)) in [1, 2, 3]:
+                self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand]
         # 广播计算利润
         temp_profit_estimation = self._sell_cell_dynamic.reshape(1, -1) - self._buy_workstand_dynamic.reshape(-1, 1)
 
         # 将不符合采购出售的匹配类型交易利润设置为-inf
-        temp_profit_estimation[self._type_equal_ori != 0] = -np.inf
+        temp_profit_estimation[self._type_equal_ori != 0] = -100000
         
         # 广播给4个机器人
         for i in range(4):
@@ -273,11 +276,11 @@ class Controller:
         self._index_tran_c = np.where(self._receive_cell_unlock)[0]
         temp = self._profit_rate_estimation[self._robot_unlock, :, :]
         temp = temp[:, self._product_workstand_unlock, :]
-        profit_rate_unlock = temp[:, :, self._receive_cell_unlock]
+        profit_rate_estimation = temp[:, :, self._receive_cell_unlock]
 
         # 未被锁定的利率
-        if self._robot_unlock[:].any():
-            r_id, w_id, c_id = np.unravel_index(np.argmax(profit_rate_unlock, axis=None), profit_rate_unlock.shape)
+        if self._robot_unlock[:].any() and (profit_rate_estimation > 0).any():
+            r_id, w_id, c_id = np.unravel_index(np.argmax(profit_rate_estimation, axis=None), profit_rate_estimation.shape)
             r_id = self._index_tran_r[r_id]
             w_id = self._index_tran_w[w_id]
             c_id = self._index_tran_c[c_id]
@@ -590,21 +593,26 @@ class Controller:
         self.cal_profit_rate()
 
         # 从未被锁定的组合中依次选取最高
-        while self.select():
-            pass
+        self.select()
+        self.select()
+        self.select()
+        self.select()
 
         for idx_robot in range(4):
             robot_status = int(self._robots.get_status(
                 feature_status_r, idx_robot))
             if robot_status == RobotGroup.FREE_STATUS:
                 # 【空闲】
+                
+                # 判定目标买点是否合法
+                target_buy = int(self._robots.get_status(feature_target_buy_r, idx_robot))
                 # 将目标买点设为目标点
-                self._robots.plan2target_buy(idx_robot)
-
-                # 切换状态为【购买途中】
-                self._robots.set_status_item(
-                    feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)
-                continue
+                if not target_buy == -1:
+                    self._robots.set_status_item(feature_target_r, idx_robot, target_buy)
+                    # 切换状态为【购买途中】
+                    self._robots.set_status_item(
+                        feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)
+                    continue
             elif robot_status == RobotGroup.MOVE_TO_BUY_STATUS:
                 # 【购买途中】
                 if self.get_dis_robot2workstand(idx_robot,
@@ -621,10 +629,11 @@ class Controller:
                     continue
             elif robot_status == RobotGroup.WAIT_TO_BUY_STATUS:
                 # 【等待购买】
-                target_workstand = self._robots.get_status(feature_target_buy_r, idx_robot)
-                target_sell_cell = self._robots.get_status(feature_target_sell_r, idx_robot)
+                target_workstand = int(self._robots.get_status(feature_target_buy_r, idx_robot))
+                target_sell_cell = int(self._robots.get_status(feature_target_sell_r, idx_robot))
                 target_sell_workstand, _ = self._workstands.get_id_workstand_of_cell(target_sell_cell)
-                product_status = int(self._workstands.get_status(feature_product_state_w, int(target_workstand)))
+                target_sell_workstand = int(target_sell_workstand)
+                product_status = int(self._workstands.get_status(feature_product_state_w, target_workstand))
                 # 如果在等待，提前转向
                 if product_status == 1:  # 这里判定是否生产完成可以购买
                     # 可以购买
@@ -662,9 +671,9 @@ class Controller:
             elif robot_status == RobotGroup.WAIT_TO_SELL_STATUS:
                 # 【等待出售】
 
-                target_sell_cell = self._robots.get_status(feature_target_sell_r, idx_robot)
+                target_sell_cell = int(self._robots.get_status(feature_target_sell_r, idx_robot))
                 target_workstand, _ = self._workstands.get_id_workstand_of_cell(target_sell_cell)
-
+                target_workstand = int(target_workstand)
                 workstand_type, _, material, _ = map(
                     int, self._workstands.get_workstand_status(target_workstand))
                 material_type = int(self._robots.get_status(
@@ -675,7 +684,6 @@ class Controller:
                 if not WORKSTAND_OUT[workstand_type] or (material & 1 << material_type) == 0:
                     # 可以购买
                     if self._robots.sell(idx_robot):  # 防止出售失败
-
                         self._receive_cell_unlock[target_sell_cell] = True  # 解锁格子
                         self._robot_unlock[idx_robot] = True  # 解锁机器人
                         self._robots.set_status_item(

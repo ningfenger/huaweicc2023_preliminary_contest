@@ -75,7 +75,7 @@ if __name__ == '__main__':
     read_map(map_obj, robot_group_obj)
     controller = Controller(robot_group_obj, map_obj)
     controller.init_ITEMS_NEED()
-    time.sleep(15)
+    # time.sleep(10)
     # 只需计算一次
     controller.cal_dis_workstand2workstand()
     finish()
