@@ -19,6 +19,8 @@ feature_target_r = 11
 feature_target_theta_r = 12
 feature_target_buy_r = 13
 feature_target_sell_r = 14
+feature_buy_count = 15
+feature_sell_count = 16
 
 
 class RobotGroup:
@@ -30,7 +32,7 @@ class RobotGroup:
     WAIT_TO_SELL_STATUS = 4
 
     def __init__(self):
-        self.group_info = np.zeros((4, 15))
+        self.group_info = np.zeros((4, 17))
         self.robots_plan = [[-1, -1] for _ in range(4)]  # 记录每个机器人的买和卖目标
 
     def add_init_location(self, idx_robot, x, y):
@@ -41,7 +43,7 @@ class RobotGroup:
         # 自定义
         # 10-status, 11-target, 12-target_theta
         self.group_info[idx_robot, :] = np.array(
-            [-1, x, y] + [0] * 10 + [-1] * 2)
+            [-1, x, y] + [0] * 10 + [-1] * 2 + [0] * 2)
 
     def update_robot(self, id_robot, state_str):
         # 后面读地图 更新工作台状态
