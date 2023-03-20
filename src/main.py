@@ -71,11 +71,11 @@ if __name__ == '__main__':
     # logging.info('===================')
     robot_group_obj = RobotGroup()
     map_obj = Map()
-    time.sleep(20)
+    # time.sleep(20)
     read_map(map_obj, robot_group_obj)
     controller = Controller(robot_group_obj, map_obj)
     controller.init_ITEMS_NEED()
-    # time.sleep(20)
+    time.sleep(15)
     # 只需计算一次
     controller.cal_dis_workstand2workstand()
     finish()

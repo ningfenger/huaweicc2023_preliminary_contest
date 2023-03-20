@@ -17,6 +17,8 @@ feature_y_r = 9
 feature_status_r = 10  # 0 空闲, 1 购买途中, 2 等待购买, 3 出售途中, 4 等待出售
 feature_target_r = 11
 feature_target_theta_r = 12
+feature_target_buy_r = 13
+feature_target_sell_r = 14
 
 
 class RobotGroup:
@@ -28,7 +30,7 @@ class RobotGroup:
     WAIT_TO_SELL_STATUS = 4
 
     def __init__(self):
-        self.group_info = np.zeros((4, 13))
+        self.group_info = np.zeros((4, 15))
         self.robots_plan = [[-1, -1] for _ in range(4)]  # 记录每个机器人的买和卖目标
 
     def add_init_location(self, idx_robot, x, y):
@@ -39,7 +41,7 @@ class RobotGroup:
         # 自定义
         # 10-status, 11-target, 12-target_theta
         self.group_info[idx_robot, :] = np.array(
-            [-1, x, y] + [0] * 10)
+            [-1, x, y] + [0] * 12)
 
     def update_robot(self, id_robot, state_str):
         # 后面读地图 更新工作台状态
@@ -57,7 +59,7 @@ class RobotGroup:
         else:
             return copy.deepcopy(self.group_info[idx_robot, [8, 9]])
 
-    # 自定义变量【10-12】
+    # 自定义变量【10-14】
     def get_status(self, feature_id, idx_robot):
         # 获取指定机器人状态
         # idx_robot为-1表示获取所有机器人状态
@@ -66,7 +68,7 @@ class RobotGroup:
         else:
             return copy.deepcopy(self.group_info[idx_robot, feature_id])
 
-    # 自定义变量【10-12】
+    # 自定义变量【10-14】
     def set_status_item(self, feature_id, idx_robot, value):
         # 设定指定机器人状态
         self.group_info[idx_robot, feature_id] = value
@@ -114,6 +116,10 @@ class RobotGroup:
             return True
         else:
             return False
+
+    def plan2target_buy(self, idx_robot):
+        # 把规划的目标now变成现实的目标
+        self.set_status_item(feature_target_r, idx_robot, self.get_status(feature_target_buy_r, idx_robot))
 
     def destroy(self, idx_robot):
         '''

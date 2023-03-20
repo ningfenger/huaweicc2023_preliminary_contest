@@ -26,6 +26,15 @@ BUY_WEIGHT = [1] * 4 + [1] * 3 + [1]  # 购买优先级，优先购买高级商�
 # 测试
 DEBUG = False
 
+def count_ones(n):
+    # 初始化计数器
+    count = 0
+    # 循环计算二进制位中数字1的数量
+    while n > 0:
+        count += n & 1
+        n >>= 1
+    # 返回结果
+    return count
 
 def get_dx_dy_d(a, b):
     dx = b[:, 0].reshape(1, -1) - a[:, 0].reshape(-1, 1)
@@ -66,6 +75,13 @@ class Controller:
         self._index_tran_r = [-1] * 4
         self._index_tran_w = [-1] * self._workstands.count
         self._index_tran_c = [-1] * self._workstands.count_cell
+
+        self._buy_workstand_ori = None
+        self._sell_cell_ori = None
+        self._type_equal_ori = None
+        self._buy_workstand_dynamic = None
+        self._sell_cell_dynamic = None
+        self._type_equal_dynamic = None
         if DEBUG:
             logging.basicConfig(filename='debug.log', level=logging.DEBUG)
 
@@ -109,23 +125,82 @@ class Controller:
         loc_workstand = np.array(
             [[self._workstands.product_workstand_dict[key][0], self._workstands.product_workstand_dict[key][1]] for key
              in self._workstands.product_workstand_dict])
-        buy_workstand = np.array(
-            [self._workstands.product_workstand_dict[key][2] for key in self._workstands.product_workstand_dict])
-        type_workstand = np.array(
-            [self._workstands.product_workstand_dict[key][3] for key in self._workstands.product_workstand_dict])
 
         loc_cell = np.array(
             [[self._workstands.receive_cell_dict[key][0], self._workstands.receive_cell_dict[key][1]] for key in
              self._workstands.receive_cell_dict])
         sell_cell = np.array([self._workstands.receive_cell_dict[key][2] for key in self._workstands.receive_cell_dict])
-        type_cell = np.array([self._workstands.receive_cell_dict[key][3] for key in self._workstands.receive_cell_dict])
 
         self._delta_x_c2w, self._delta_y_c2w, self._dis_cell2workstand = get_dx_dy_d(loc_cell, loc_workstand)
 
-        type_equal = type_cell.reshape(1, -1) - type_workstand.reshape(-1, 1)
+        # 原始工作台购买价格
+        self._buy_workstand_ori = np.array(
+            [self._workstands.product_workstand_dict[key][2] for key in self._workstands.product_workstand_dict])
 
-        temp_profit_estimation = sell_cell.reshape(1, -1) - buy_workstand.reshape(-1, 1)
-        temp_profit_estimation[type_equal != 0] = -np.inf
+        # 原始格子收购价格价格
+        self._sell_cell_ori = np.array([self._workstands.receive_cell_dict[key][2] for key in self._workstands.receive_cell_dict])
+
+        # 动态采购出售价格初始化，生成规模一致的数组
+        self._buy_workstand_dynamic = copy.deepcopy(self._buy_workstand_ori)
+        self._sell_cell_dynamic = copy.deepcopy(self._sell_cell_ori)
+        # 工作台生产物品类型
+        type_workstand = np.array(
+            [self._workstands.product_workstand_dict[key][3] for key in self._workstands.product_workstand_dict])
+
+        # 格子收购物品类型
+        type_cell = np.array([self._workstands.receive_cell_dict[key][3] for key in self._workstands.receive_cell_dict])
+
+        # 做差 0表示生产收购一致
+        self._type_equal_ori = type_cell.reshape(1, -1) - type_workstand.reshape(-1, 1)
+
+    def cal_profit_workstand2cell(self):
+
+        # 计算格子收购价
+        # 如果此格子有物品，其收购价设置为0
+        # 如果邻居格子有物品，提高提高此格子预估收购价，促进合成
+        for key_cell in range(self._workstands.count_cell):
+            
+            # 此cell对应的接收产品与工作台id
+            idx_workstand, material_receive = self._workstands.get_id_workstand_of_cell(key_cell)
+
+            # 获取工作台id的原料格状态
+            _, _, material, _ = self._workstands.get_workstand_status(idx_workstand)
+
+            if int(material) & (1 << material_receive):
+                # 此格子已有物品
+                self._sell_cell_dynamic[key_cell] = -np.inf  # 负无穷
+            else:
+                # 此格子没有物品
+                if int(material):
+                    # 邻居格子有物品 此格子无物品
+                    self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell] * 1.1
+                else:
+                    # 都没有 不动
+                    self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell]
+
+        # 计算工作台采购价
+        # 如果此工作台产出格子没有物品，其收购价设置为Inf
+        # 如果其自带格子有物品，适当降低采购价，防止阻塞
+        for key_workstand in range(self._workstands.count):
+
+            # 获取工作台id的原料格状态 产品格状态
+            _, _, material, product_status = self._workstands.get_workstand_status(idx_workstand)
+            material_count = count_ones(material)
+
+            if int(product_status):
+                # 产品格已有物品
+                self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand] * (1 - 0.1 * material_count)  # 负无穷
+            else:
+                # 产品格没有物品
+                self._buy_workstand_dynamic[key_workstand] = np.inf  # 收购价设置为正无穷
+
+        # 广播计算利润
+        temp_profit_estimation = self._sell_cell_dynamic.reshape(1, -1) - self._buy_workstand_dynamic.reshape(-1, 1)
+
+        # 将不符合采购出售的匹配类型交易利润设置为-inf
+        temp_profit_estimation[self._type_equal_ori != 0] = -np.inf
+        
+        # 广播给4个机器人
         for i in range(4):
             self._profit_estimation[i, :, :] = temp_profit_estimation
         pass
@@ -145,13 +220,43 @@ class Controller:
         # 计算机器人-工作台(所有工作台)的冷却时间以及工作台-格子(所有格子)的冷却时间
         # 分两段计算 因为移动过程也是两段，要分两段取max
 
+        # 机器人到工作台
+        # 等待工作台的冷却时间 工作台广播
         for key_workstand in range(self._workstands.count):
             idx_workstand = key_workstand
-            self._cooldown_robot2workstand[:, key_workstand] = self._workstands._workstand[idx_workstand, feature_waiting_time_w]
+            if int(self._workstands.get_status(feature_product_state_w, idx_workstand)) == 1:
+                # 产品格有产品
+                waiting_time = 0
+            elif int(self._workstands.get_status(feature_waiting_time_w, idx_workstand)) == -1:
+                # 没产品且不在生产中
+                waiting_time = np.inf
+            else:
+                waiting_time = int(self._workstands.get_status(feature_waiting_time_w, idx_workstand))
 
+            self._cooldown_robot2workstand[:, key_workstand] = waiting_time
+
+        # 工作台到格子
+        # 等待格子的冷却时间 格子广播
         for key_cell in range(self._workstands.count_cell):
-            idx_workstand = self._workstands.get_id_workstand_of_cell(key_cell)
-            self._cooldown_workstand2cell[:, key_cell] = self._workstands._workstand[idx_workstand, feature_waiting_time_w]
+            # 获取此格子对应的工作台id和收购产品类型
+            idx_workstand, material_receive = self._workstands.get_id_workstand_of_cell(key_cell)
+
+            # 获取工作台id的原料格状态
+            _, _, material, _ = self._workstands.get_workstand_status(idx_workstand)
+            if int(material) & (1 << material_receive):
+                # 这个盒子已有物品
+                waiting_time = self._workstands._workstand[idx_workstand, feature_waiting_time_w]
+                if waiting_time <= 0:
+                    # -1 没在生产，不是冷却时间为-1
+                    # 0 在阻塞，不是冷却时间为0
+                    # workstand_type= self._workstands.get_status(feature_num_type_w, idx_workstand)
+                    # waiting_time = cool_down_time_max[workstand_type]
+                    waiting_time = np.inf  # 冷却时间设为无穷
+
+            else:
+                # 还可以放物品
+                waiting_time = 0
+            self._cooldown_workstand2cell[:, key_cell] = waiting_time
 
 
     def cal_time(self):
@@ -163,13 +268,29 @@ class Controller:
         self._profit_rate_estimation = self._profit_estimation / self._time_robot2workstand2cell
 
     def select(self):
-        self._index_tran_r = np.where(self._robot_unlock)
-        self._index_tran_w = np.where(self._product_workstand_unlock)
-        self._index_tran_c = np.where(self._receive_cell_unlock)
+        self._index_tran_r = np.where(self._robot_unlock)[0]
+        self._index_tran_w = np.where(self._product_workstand_unlock)[0]
+        self._index_tran_c = np.where(self._receive_cell_unlock)[0]
         temp = self._profit_rate_estimation[self._robot_unlock, :, :]
         temp = temp[:, self._product_workstand_unlock, :]
         profit_rate_unlock = temp[:, :, self._receive_cell_unlock]
-        pass
+
+        # 未被锁定的利率
+        if self._robot_unlock[:].any():
+            r_id, w_id, c_id = np.unravel_index(np.argmax(profit_rate_unlock, axis=None), profit_rate_unlock.shape)
+            r_id = self._index_tran_r[r_id]
+            w_id = self._index_tran_w[w_id]
+            c_id = self._index_tran_c[c_id]
+            self._robots.set_status_item(feature_target_buy_r, r_id, w_id)
+            self._robots.set_status_item(feature_target_sell_r, r_id, c_id)
+            self._robot_unlock[r_id] = False
+            self._product_workstand_unlock[w_id] = False
+            self._receive_cell_unlock[c_id] = False
+            return True
+        else:
+            return False
+
+
 
 
     def get_dis_robot2robot(self, idx_robot1, idx_robot2):
@@ -462,22 +583,30 @@ class Controller:
         # 计算总耗时
         self.cal_time()
 
-        # 计算利率
+        # 计算利润
+        self.cal_profit_workstand2cell()
+
+        # 计算利率 利润 / 耗时
         self.cal_profit_rate()
 
         # 从未被锁定的组合中依次选取最高
-        self.select()
-        idx_robot = 0
-        while idx_robot < 4:
+        while self.select():
+            pass
+
+        for idx_robot in range(4):
             robot_status = int(self._robots.get_status(
                 feature_status_r, idx_robot))
             if robot_status == RobotGroup.FREE_STATUS:
-                # 【空闲】执行调度策略
-                if self.choise(frame_id, idx_robot):
-                    continue
+                # 【空闲】
+                # 将目标买点设为目标点
+                self._robots.plan2target_buy(idx_robot)
+
+                # 切换状态为【购买途中】
+                self._robots.set_status_item(
+                    feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)
+                continue
             elif robot_status == RobotGroup.MOVE_TO_BUY_STATUS:
                 # 【购买途中】
-
                 if self.get_dis_robot2workstand(idx_robot,
                                                 self._robots.get_status(feature_target_r, idx_robot)) < DIS_1:
                     self.move2loc(idx_robot, VELO_1)
@@ -492,17 +621,17 @@ class Controller:
                     continue
             elif robot_status == RobotGroup.WAIT_TO_BUY_STATUS:
                 # 【等待购买】
-                target_walkstand, next_walkstand = self._robots.robots_plan[idx_robot]
-                product_status = int(
-                    self._workstands.get_workstand_status(target_walkstand)[3])
+                target_workstand = self._robots.get_status(feature_target_buy_r, idx_robot)
+                target_sell_cell = self._robots.get_status(feature_target_sell_r, idx_robot)
+                target_sell_workstand, _ = self._workstands.get_id_workstand_of_cell(target_sell_cell)
+                product_status = int(self._workstands.get_status(feature_product_state_w, target_workstand))
                 # 如果在等待，提前转向
-                if product_status == 1:  # 这里判定是否生产完成可以购买 不是真的1
+                if product_status == 1:  # 这里判定是否生产完成可以购买
                     # 可以购买
                     if self._robots.buy(idx_robot):  # 防止购买失败
-                        self._workstands.set_product_pro(
-                            target_walkstand, 0)  # 取消预购
+                        self._product_workstand_unlock[target_workstand] = True  # 解锁这个工作台
                         self._robots.set_status_item(
-                            feature_target_r, idx_robot, next_walkstand)  # 更新目标到卖出地点
+                            feature_target_r, idx_robot, target_sell_workstand)  # 更新目标到卖出地点
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 切换为 【出售途中】
                         # logging.debug(f"{idx_robot}->way to sell")
@@ -532,22 +661,23 @@ class Controller:
 
             elif robot_status == RobotGroup.WAIT_TO_SELL_STATUS:
                 # 【等待出售】
-                _, target_walkstand = self._robots.robots_plan[idx_robot]
+
+                target_sell_cell = self._robots.get_status(feature_target_sell_r, idx_robot)
+                target_workstand, _ = self._workstands.get_id_workstand_of_cell(target_sell_cell)
+
                 workstand_type, _, material, _ = map(
-                    int, self._workstands.get_workstand_status(target_walkstand))
+                    int, self._workstands.get_workstand_status(target_workstand))
                 material_type = int(self._robots.get_status(
                     feature_materials_r, idx_robot))
                 # 如果在等待，提前转向
-                # raise Exception(F"{material},{material_type}")
+                
                 # 这里判定是否生产完成可以出售 不是真的1
                 if not WORKSTAND_OUT[workstand_type] or (material & 1 << material_type) == 0:
                     # 可以购买
                     if self._robots.sell(idx_robot):  # 防止出售失败
-                        # 取消预定
-                        material_pro = int(
-                            self._workstands.get_material_pro(target_walkstand))
-                        self._workstands.set_material_pro(
-                            target_walkstand, material_pro - (1 << material_type))
+
+                        self._receive_cell_unlock[target_sell_cell] = True  # 解锁格子
+                        self._robot_unlock[idx_robot] = True  # 解锁机器人
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.FREE_STATUS)  # 切换为空闲
                         # logging.debug(f"{idx_robot}->wait")
@@ -556,4 +686,4 @@ class Controller:
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 购买失败说明位置不对，切换为 【出售途中】
                         continue
-            idx_robot += 1
+

@@ -14,6 +14,7 @@ feature_product_pro_w = 7
 
 ITEMS_BUY = [0, 3000, 4400, 5800, 15400, 17200, 19200, 76000]  # 每个物品的购买价
 ITEMS_SELL = [0, 6000, 7600, 9200, 22500, 25000, 27500, 105000]
+cool_down_time_max = [0, 50, 50, 50, 500, 500, 500, 1000, 1, 1]
 WORKSTAND_IN = {1: [], 2: [], 3: [], 4: [1, 2], 5: [1, 3],
                 6: [2, 3], 7: [4, 5, 6], 8: [7], 9: list(range(1, 8))}
 WORKSTAND_OUT = {i: i for i in range(1, 8)}
@@ -99,8 +100,16 @@ class Map:
             return copy.deepcopy(self._workstand[idx_workstand, [1, 2]])
 
     def get_id_workstand_of_cell(self, key_cell):
-        _, _, _, _, idx_workstand = self.receive_cell_dict[key_cell]
-        return  idx_workstand
+        _, _, _, material, idx_workstand = self.receive_cell_dict[key_cell]
+        return idx_workstand, material
+
+    def get_status(self, feature_id, idx_workstand):
+        # 获取指定机器人状态
+        # idx_workstand为-1表示获取所有机器人状态
+        if idx_workstand == -1:
+            return copy.deepcopy(self._workstand[:, feature_id])
+        else:
+            return copy.deepcopy(self._workstand[idx_workstand, feature_id])
 
     def __len__(self):
         return self.count
