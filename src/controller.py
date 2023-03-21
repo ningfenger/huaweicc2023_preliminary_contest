@@ -156,66 +156,73 @@ class Controller:
 
     def cal_profit_workstand2cell(self, frame_id_in):
 
-        # 计算格子收购价
-        # 如果此格子有物品，其收购价设置为0
-        # 如果邻居格子有物品，提高提高此格子预估收购价，促进合成
-        for key_cell in range(self._workstands.count_cell):
-            
-            # 此cell对应的接收产品与工作台id
-            idx_workstand, material_receive = self._workstands.get_id_workstand_of_cell(key_cell)
+        for idx_robot in range(4):
+            # 计算格子收购价
+            # 如果此格子有物品，其收购价设置为0
+            # 如果邻居格子有物品，提高提高此格子预估收购价，促进合成
+            for key_cell in range(self._workstands.count_cell):
+                time_arrive = self._dis_robot2cell[idx_robot, key_cell] / 5.5
+                # 此cell对应的接收产品与工作台id
+                idx_workstand, material_receive = self._workstands.get_id_workstand_of_cell(key_cell)
 
-            # 获取工作台id的原料格状态
-            _, _, material, _ = self._workstands.get_workstand_status(idx_workstand)
+                # 获取工作台id的原料格状态
+                _, _, material, _ = self._workstands.get_workstand_status(idx_workstand)
 
-            if int(material) & (1 << material_receive):
-                # 此格子已有物品
-                self._sell_cell_dynamic[key_cell] = -1000000  # 负无穷
-            else:
-                # 此格子没有物品
-                if int(material):
-                    # 邻居格子有物品 此格子无物品
-                    self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell] * (1 + 0.21 * count_ones(int(material)))
+                if int(material) & (1 << material_receive):
+                    # 此格子已有物品
+                    waiting_time = int(self._workstands.get_status(feature_waiting_time_w, idx_workstand))
+                    if waiting_time in [-1, 0]:
+                        # 不在生产 或 阻塞
+                        self._sell_cell_dynamic[key_cell] = -1000000  # 负无穷
+                    else:
+                        # 在生产中
+                        self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell]
                 else:
-                    # 都没有 不动
-                    self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell]
-            
+                    # 此格子没有物品
+                    if int(material):
+                        # 邻居格子有物品 此格子无物品
+                        self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell] * (1 + 0.08 * count_ones(int(material))) ** 2
+                    else:
+                        # 都没有 不动
+                        self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell]
 
-        # 计算工作台采购价
-        # 如果此工作台产出格子没有物品，其收购价设置为Inf
-        # 如果其自带格子有物品，适当降低采购价，防止阻塞
-        for key_workstand in range(self._workstands.count):
 
-            # 获取工作台id的原料格状态 产品格状态
-            # _, _, material, product_status = self._workstands.get_workstand_status(idx_workstand)
-            _, _, material, product_status = self._workstands.get_workstand_status(key_workstand)
-            material_count = count_ones(material)
+            # 计算工作台采购价
+            # 如果此工作台产出格子没有物品，其收购价设置为Inf
+            # 如果其自带格子有物品，适当降低采购价，防止阻塞
+            for key_workstand in range(self._workstands.count):
+                time_arrive = self._dis_robot2workstand[idx_robot, key_workstand] / 5.5
 
-            if int(product_status):
-                # 产品格已有物品
-                self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand] * (1 - 0.21 * material_count)  # 负无穷
-            else:
-                # 产品格没有物品
+                # 获取工作台id的原料格状态 产品格状态
+                # _, _, material, product_status = self._workstands.get_workstand_status(idx_workstand)
+                _, _, material, product_status = self._workstands.get_workstand_status(key_workstand)
+                material_count = count_ones(material)
 
-                if int(self._workstands.get_status(feature_waiting_time_w, key_workstand)) == -1:
-                    # 没在生产
-                    self._buy_workstand_dynamic[key_workstand] = 1000000  # 收购价设置为正无穷
+                if int(product_status):
+                    # 产品格已有物品
+                    self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand] * (1 - 0.08 * material_count) ** 2  # 负无穷
+                else:
+                    # 产品格没有物品
 
-                elif int(self._workstands.get_status(feature_waiting_time_w, key_workstand)) <= 50 * 2:
+                    if int(self._workstands.get_status(feature_waiting_time_w, key_workstand)) == -1:
+                        # 没在生产
+                        self._buy_workstand_dynamic[key_workstand] = 1000000  # 收购价设置为正无穷
+
+                    elif int(self._workstands.get_status(feature_waiting_time_w, key_workstand)) <= 50 * 2:
+                        self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand]
+
+
+
+                if int(self._workstands.get_status(feature_num_type_w, key_workstand)) in [1, 2, 3] and frame_id_in < 52:
                     self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand]
+            # 广播计算利润
+            temp_profit_estimation = self._sell_cell_dynamic.reshape(1, -1) - self._buy_workstand_dynamic.reshape(-1, 1)
 
+            # 将不符合采购出售的匹配类型交易利润设置为-inf
+            temp_profit_estimation[self._type_equal_ori != 0] = -100000
 
-
-            if int(self._workstands.get_status(feature_num_type_w, key_workstand)) in [1, 2, 3] and frame_id_in < 52:
-                self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand]
-        # 广播计算利润
-        temp_profit_estimation = self._sell_cell_dynamic.reshape(1, -1) - self._buy_workstand_dynamic.reshape(-1, 1)
-
-        # 将不符合采购出售的匹配类型交易利润设置为-inf
-        temp_profit_estimation[self._type_equal_ori != 0] = -100000
-        
-        # 广播给4个机器人
-        for i in range(4):
-            self._profit_estimation[i, :, :] = temp_profit_estimation
+            # 广播给4个机器人
+            self._profit_estimation[idx_robot, :, :] = temp_profit_estimation
         pass
 
     def cal_dis_robot2workstand2cell(self):
@@ -353,7 +360,7 @@ class Controller:
 
     def calculate_potential_field(self, idx_robot, idx_workstand):
         # 计算位于current_pos处的机器人的势能场
-        near_flag = False
+        near_flag = -1
         idx_workstand = int(idx_workstand)
         attractive_field = np.zeros(2)
         repulsive_field = np.zeros(2)
@@ -382,8 +389,8 @@ class Controller:
 
                 ang_other = math.acos(
                     np.dot(dircos_other, np.array([dx_robot, dy_robot])))
-                if distance_robot < 1.5:
-                    near_flag = True
+                if distance_robot < 1.2 and idx_robot < idx_other:
+                    near_flag = idx_other
                 # 如果机器人之间的距离小于一定半径范围，则计算斥力
                 if distance_robot < RADIUS and (ang_robot < math.pi * 0.2 or ang_other < math.pi * 0.2):
                     repulsive_force = 0.5 * idx_robot * ETA * \
@@ -468,8 +475,8 @@ class Controller:
         k_s = 5
         # self._robots.rotate(idx_robot, delta_theta * k_r)
         if near_flag:
-            # 和其他机器人足够近时
-            # speed = 3 * (idx_robot+1) / 4
+            # 应该避让时
+            speed = -2
             delta_theta += 0.15
         if abs(delta_theta) < math.pi * 0.8 or distance_r2w > 3:
             self._robots.rotate(idx_robot, delta_theta * k_r)
@@ -672,6 +679,7 @@ class Controller:
                             feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 购买失败说明位置不对，切换为 【出售途中】
                         continue
             idx_robot += 1
+
 
     def control2(self, frame_id: int):
         self.cal_dis_robot2workstand()
