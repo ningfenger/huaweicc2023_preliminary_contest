@@ -12,28 +12,29 @@ if platform == 'linux':
 # 转化归一化的值
 
 
-def get_final_value(x1, x2, x3, x4, x5, x6, x7, x8):
+def get_final_value(x1, x2, x3, x4, x5, x6, x7, x8, x9):
     DIS_1 = 0.3+x1  # 开始刹车的距离 0.3~1.3
     VELO_1 = 0.1+x2  # 刹车时的速度 0.1~1.1
     MOVE_SPEED = 1 / (2+3*x3) * 50  # 估算移动时间 2~5
     MAX_WAIT = (2+8*x4) * 50  # 最大等待时间 2~10
     SELL_WEIGHT = 1+x5  # 优先卖给格子被部分占用的 1~2
+    SELL_DEBUFF = x6 # 0~1.0
     # 人工势场常数
-    ETA = 100+400*x6  # 调整斥力大小的常数 100~500
-    GAMMA = 5+15*x7  # 调整吸引力大小的常数 5~20
-    RADIUS = 2+8*x8  # 定义斥力半径范围 2-10
+    ETA = 100+400*x7  # 调整斥力大小的常数 100~500
+    GAMMA = 5+15*x8  # 调整吸引力大小的常数 5~20
+    RADIUS = 2+8*x9  # 定义斥力半径范围 2-10
     return DIS_1, VELO_1, MOVE_SPEED, MAX_WAIT, SELL_WEIGHT, ETA, GAMMA, RADIUS
 # 定义目标函数
 
 
-def target_function(x1, x2, x3, x4, x5, x6, x7, x8):
+def target_function(x1, x2, x3, x4, x5, x6, x7, x8, x9):
     # 在这里写入你的目标函数代码
     maps = list(range(1, 5))
     total_score = 0
-    DIS_1, VELO_1, MOVE_SPEED, MAX_WAIT, SELL_WEIGHT, ETA, GAMMA, RADIUS = get_final_value(
-        x1, x2, x3, x4, x5, x6, x7, x8)
+    DIS_1, VELO_1, MOVE_SPEED, MAX_WAIT, SELL_WEIGHT,SELL_DEBUFF, ETA, GAMMA, RADIUS = get_final_value(
+        x1, x2, x3, x4, x5, x6, x7, x8, x9)
     print(f'参数: --dis_1 {DIS_1} --velo_1 {VELO_1} --move_speed {MOVE_SPEED} --max_wait {MAX_WAIT} \
-        --sell_weight {SELL_WEIGHT} --eta {ETA} --gamma {GAMMA} --radius {RADIUS}')
+        --sell_weight {SELL_WEIGHT} --sell_debuff {SELL_DEBUFF} --eta {ETA} --gamma {GAMMA} --radius {RADIUS}')
     for map in maps:
         # 控制参数
         cmd = f'{Robot} "python src/main.py --dis_1 {DIS_1} --velo_1 {VELO_1} --move_speed {MOVE_SPEED} --max_wait {MAX_WAIT} \
