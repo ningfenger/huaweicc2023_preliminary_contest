@@ -13,8 +13,8 @@ DISMAP = None  # 初始化时更新，记录任意两个工作台间的测算距
 ITEMS_NEED = [[] for _ in range(8)]  # 记录收购每个商品的工作台编号
 
 # 控制参数
-DIS_1 = 1.5
-VELO_1 = 2
+DIS = [5, 2, 1]
+VELO = [5, 2, 1]
 MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
 MAX_WAIT = 3 * 50  # 最大等待时间
 SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
@@ -174,7 +174,7 @@ class Controller:
                 # 此格子没有物品
                 if int(material):
                     # 邻居格子有物品 此格子无物品
-                    self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell] * (1 + 0.1 * count_ones(int(material)))
+                    self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell] * (1 + 0.21 * count_ones(int(material)))
                 else:
                     # 都没有 不动
                     self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell]
@@ -186,15 +186,24 @@ class Controller:
         for key_workstand in range(self._workstands.count):
 
             # 获取工作台id的原料格状态 产品格状态
-            _, _, material, product_status = self._workstands.get_workstand_status(idx_workstand)
+            # _, _, material, product_status = self._workstands.get_workstand_status(idx_workstand)
+            _, _, material, product_status = self._workstands.get_workstand_status(key_workstand)
             material_count = count_ones(material)
 
             if int(product_status):
                 # 产品格已有物品
-                self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand] * (1 - 0.1 * material_count)  # 负无穷
+                self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand] * (1 - 0.21 * material_count)  # 负无穷
             else:
                 # 产品格没有物品
-                self._buy_workstand_dynamic[key_workstand] = 1000000  # 收购价设置为正无穷
+
+                if int(self._workstands.get_status(feature_waiting_time_w, key_workstand)) == -1:
+                    # 没在生产
+                    self._buy_workstand_dynamic[key_workstand] = 1000000  # 收购价设置为正无穷
+
+                elif int(self._workstands.get_status(feature_waiting_time_w, key_workstand)) <= 50 * 2:
+                    self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand]
+
+
 
             if int(self._workstands.get_status(feature_num_type_w, key_workstand)) in [1, 2, 3] and frame_id_in < 52:
                 self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand]
@@ -344,6 +353,7 @@ class Controller:
 
     def calculate_potential_field(self, idx_robot, idx_workstand):
         # 计算位于current_pos处的机器人的势能场
+        near_flag = False
         idx_workstand = int(idx_workstand)
         attractive_field = np.zeros(2)
         repulsive_field = np.zeros(2)
@@ -372,7 +382,8 @@ class Controller:
 
                 ang_other = math.acos(
                     np.dot(dircos_other, np.array([dx_robot, dy_robot])))
-
+                if distance_robot < 1.5:
+                    near_flag = True
                 # 如果机器人之间的距离小于一定半径范围，则计算斥力
                 if distance_robot < RADIUS and (ang_robot < math.pi * 0.2 or ang_other < math.pi * 0.2):
                     repulsive_force = 0.5 * idx_robot * ETA * \
@@ -394,14 +405,14 @@ class Controller:
 
         total_field = repulsive_field + attractive_field
         desired_angle = np.arctan2(total_field[1], total_field[0])
-        return desired_angle, distance_r2w
+        return desired_angle, distance_r2w, near_flag
 
     def move2loc(self, idx_robot, speed):
         # 输入控制机器人编号 目标工作台编号 期望速度
         # 结合人工势场计算速度
         idx_target = self._robots.get_status(feature_target_r, idx_robot)
 
-        desired_theta, distance_r2w = self.calculate_potential_field(idx_robot, idx_target)
+        desired_theta, distance_r2w, near_flag = self.calculate_potential_field(idx_robot, idx_target)
 
         # 比例控制 追踪目标方向
         # 计算相差方向 P
@@ -411,12 +422,16 @@ class Controller:
         delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
         k = 10
         # self._robots.rotate(idx_robot, delta_theta * k)
+        if near_flag:
+            # 和其他机器人足够近时
+            # speed = 3 * (idx_robot+1) / 4
+            delta_theta += 0.15
         if abs(delta_theta) < math.pi * 0.8 or distance_r2w > 3:
             self._robots.rotate(idx_robot, delta_theta * k)
             if abs(delta_theta) < math.pi / 3:
                 self._robots.forward(idx_robot, speed)
             else:
-                self._robots.forward(idx_robot, speed*delta_theta * k*0.5)
+                self._robots.forward(idx_robot, delta_theta * k*0.25)
         else:
             self._robots.rotate(idx_robot, -delta_theta * k)
             self._robots.forward(idx_robot, -speed)
@@ -435,6 +450,54 @@ class Controller:
         #     speed = abs(delta_theta) * k * 0.25
         #
         # self._robots.forward(idx_robot, speed)
+
+    def move2loc_new(self, idx_robot):
+        # 输入控制机器人编号 目标工作台编号 期望速度
+        # 结合人工势场计算速度
+        idx_target = self._robots.get_status(feature_target_r, idx_robot)
+
+        desired_theta, distance_r2w, near_flag = self.calculate_potential_field(idx_robot, idx_target)
+
+        # 比例控制 追踪目标方向
+        # 计算相差方向 P
+        now_theta = self._robots.get_status(feature_theta_r, idx_robot)
+        now_ang_velo = self._robots.get_status(feature_ang_velo_r, idx_robot)
+        delta_theta = desired_theta - now_theta
+        delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
+        k_r = 10
+        k_s = 5
+        # self._robots.rotate(idx_robot, delta_theta * k_r)
+        if near_flag:
+            # 和其他机器人足够近时
+            # speed = 3 * (idx_robot+1) / 4
+            delta_theta += 0.15
+        if abs(delta_theta) < math.pi * 0.8 or distance_r2w > 3:
+            self._robots.rotate(idx_robot, delta_theta * k_r)
+            if abs(delta_theta) < math.pi / 3:
+                self._robots.forward(idx_robot, distance_r2w * k_s)
+            else:
+                self._robots.forward(idx_robot, delta_theta * k_r *0.25)
+        else:
+            # 倒车
+            self._robots.rotate(idx_robot, -delta_theta * k_r)
+            self._robots.forward(idx_robot, -distance_r2w * k_s)
+        # if delta_theta > -0.9 * math.pi and desired_theta < 0.9 * math.pi:
+        #     # 需要顺时针转动追踪目标方向
+        #     self._robots.rotate(idx_robot, delta_theta * k_r)
+        # elif abs(now_ang_velo) > 0.01:
+        #     # 防止有转速时在小区间震荡
+        #     # 按原转速冲过震荡区间
+        #     self._robots.rotate(idx_robot, np.sign(now_ang_velo))
+        # else:
+        #     # 无转速按原策略
+        #     self._robots.rotate(idx_robot, delta_theta * k_r)
+        #
+        # if abs(delta_theta) > math.pi / 3 and distance_r2w < 5:
+        #     speed = abs(delta_theta) * k_r * 0.25
+        #
+        # self._robots.forward(idx_robot, speed)
+
+
 
     def get_time_rate(self, frame_sell: float) -> float:
         # 计算时间损失
@@ -536,11 +599,8 @@ class Controller:
             elif robot_status == RobotGroup.MOVE_TO_BUY_STATUS:
                 # 【购买途中】
 
-                if self.get_dis_robot2workstand(idx_robot,
-                                                self._robots.get_status(feature_target_r, idx_robot)) < DIS_1:
-                    self.move2loc(idx_robot, VELO_1)
-                else:
-                    self.move2loc(idx_robot, 6)
+
+                self.move2loc_new(idx_robot)
 
                 # 判定是否进入交互范围
                 if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
@@ -574,11 +634,8 @@ class Controller:
                 # 【出售途中】
                 # 移动
                 # 判断距离是否够近
-                if self.get_dis_robot2workstand(idx_robot,
-                                                self._robots.get_status(feature_target_r, idx_robot)) < DIS_1:
-                    self.move2loc(idx_robot, VELO_1)
-                else:
-                    self.move2loc(idx_robot, 6)
+
+                self.move2loc_new(idx_robot)
 
                 # 判定是否进入交互范围
                 if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
@@ -658,11 +715,9 @@ class Controller:
                 continue
             elif robot_status == RobotGroup.MOVE_TO_BUY_STATUS:
                 # 【购买途中】
-                if self.get_dis_robot2workstand(idx_robot,
-                                                self._robots.get_status(feature_target_r, idx_robot)) < DIS_1:
-                    self.move2loc(idx_robot, VELO_1)
-                else:
-                    self.move2loc(idx_robot, 6)
+
+                self.move2loc_new(idx_robot)
+
 
                 target_workstand = int(self._robots.get_status(feature_target_buy_r, idx_robot))
                 product_status = int(self._workstands.get_status(feature_product_state_w, target_workstand))
@@ -716,9 +771,13 @@ class Controller:
                             int, self._workstands.get_workstand_status(target_workstand))
                         material_type = int(self._robots.get_status(
                             feature_materials_r, idx_robot))
+
                         self._receive_cell_unlock[target_sell_cell] = True  # 解锁格子
                         self._product_workstand_unlock[target_workstand] = True  # 解锁工作台
                         self._robot_unlock[idx_robot] = True  # 解锁机器人
+
+                        self._robots.set_status_item(feature_target_r, -1)
+
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.FREE_STATUS)  # 切换为空闲
                         raise Exception('Buy Many times')
@@ -728,11 +787,7 @@ class Controller:
                 # 【出售途中】
                 # 移动
                 # 判断距离是否够近
-                if self.get_dis_robot2workstand(idx_robot,
-                                                self._robots.get_status(feature_target_r, idx_robot)) < DIS_1:
-                    self.move2loc(idx_robot, VELO_1)
-                else:
-                    self.move2loc(idx_robot, 6)
+                self.move2loc_new(idx_robot)
 
                 target_sell_cell = int(self._robots.get_status(feature_target_sell_r, idx_robot))
                 target_workstand, _ = self._workstands.get_id_workstand_of_cell(target_sell_cell)
@@ -742,6 +797,8 @@ class Controller:
                 material_type = int(self._robots.get_status(
                     feature_materials_r, idx_robot))
 
+                if idx_robot == 3:
+                    aaaaaaaaa = 10000000000000
                 # 判定是否进入交互范围 且格子内无材料
                 if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
                         feature_target_r, idx_robot) and (material & 1 << material_type) == 0:
