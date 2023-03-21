@@ -26,6 +26,11 @@ BUY_WEIGHT = [1] * 4 + [1] * 3 + [1]  # 购买优先级，优先购买高级商�
 # 测试
 DEBUG = False
 
+def sign_pow(num_in, n):
+    if num_in < 0:
+        return -abs(num_in) ** n
+    else:
+        return abs(num_in) ** n
 def count_ones(n):
     # 初始化计数器
     n = int(n)
@@ -380,19 +385,28 @@ class Controller:
 
                 theta_other = self._robots.get_status(
                     feature_theta_r, idx_other)
-
+                theta_robot = self._robots.get_status(
+                    feature_theta_r, idx_robot)
                 # 各向异性判断是否会产生潜在的碰撞事件
+
+                # 其他人的头朝向方向余弦
                 dircos_other = np.array(
                     [math.cos(theta_other), math.sin(theta_other)])
+
+                # 自己的头朝向方向余弦
+                dircos_robot = np.array(
+                    [math.cos(theta_robot), math.sin(theta_robot)])
+
+                dircos_robot2other = np.array([dx_robot, dy_robot])
                 ang_robot = math.acos(
                     np.dot(dircos_robot, np.array([-dx_robot, -dy_robot])))
 
                 ang_other = math.acos(
                     np.dot(dircos_other, np.array([dx_robot, dy_robot])))
-                if distance_robot < 1.2 and idx_robot < idx_other:
+                if distance_robot < 2 and idx_robot < idx_other and math.acos(np.dot(dircos_robot2other, dircos_robot)) < math.pi / 4:
                     near_flag = idx_other
                 # 如果机器人之间的距离小于一定半径范围，则计算斥力
-                if distance_robot < RADIUS and (ang_robot < math.pi * 0.2 or ang_other < math.pi * 0.2):
+                if distance_robot < RADIUS and (ang_robot < math.pi * 0.3 or ang_other < math.pi * 0.3):
                     repulsive_force = 0.5 * idx_robot * ETA * \
                                       ((1.0 / distance_robot) - (1.0 / RADIUS)) ** 2
                     repulsive_field[0] -= repulsive_force * dx_robot
@@ -468,41 +482,77 @@ class Controller:
         # 比例控制 追踪目标方向
         # 计算相差方向 P
         now_theta = self._robots.get_status(feature_theta_r, idx_robot)
+        # now_theta = math.atan2(self._robots.get_status(feature_line_velo_y_r, idx_robot), self._robots.get_status(feature_line_velo_x_r, idx_robot))
         now_ang_velo = self._robots.get_status(feature_ang_velo_r, idx_robot)
         delta_theta = desired_theta - now_theta
         delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
         k_r = 10
-        k_s = 5
+        n_r = 1
+        k_s = 10
+        n_s = 1.5
+
+
         # self._robots.rotate(idx_robot, delta_theta * k_r)
-        if near_flag:
+        if not near_flag == -1:
             # 应该避让时
             speed = -2
-            delta_theta += 0.15
-        if abs(delta_theta) < math.pi * 0.8 or distance_r2w > 3:
+            self._robots.forward(idx_robot, speed)
+            # delta_theta += 0.7
             self._robots.rotate(idx_robot, delta_theta * k_r)
-            if abs(delta_theta) < math.pi / 3:
-                self._robots.forward(idx_robot, distance_r2w * k_s)
-            else:
-                self._robots.forward(idx_robot, delta_theta * k_r *0.25)
         else:
-            # 倒车
-            self._robots.rotate(idx_robot, -delta_theta * k_r)
-            self._robots.forward(idx_robot, -distance_r2w * k_s)
-        # if delta_theta > -0.9 * math.pi and desired_theta < 0.9 * math.pi:
-        #     # 需要顺时针转动追踪目标方向
-        #     self._robots.rotate(idx_robot, delta_theta * k_r)
-        # elif abs(now_ang_velo) > 0.01:
-        #     # 防止有转速时在小区间震荡
-        #     # 按原转速冲过震荡区间
-        #     self._robots.rotate(idx_robot, np.sign(now_ang_velo))
-        # else:
-        #     # 无转速按原策略
-        #     self._robots.rotate(idx_robot, delta_theta * k_r)
-        #
-        # if abs(delta_theta) > math.pi / 3 and distance_r2w < 5:
-        #     speed = abs(delta_theta) * k_r * 0.25
-        #
-        # self._robots.forward(idx_robot, speed)
+            d_far = 11
+            d_near = 5
+            d_daoche = 3
+
+            ang_large = math.pi * 0.9
+            ang_small = math.pi * 0.1
+            if abs(delta_theta) < ang_small:
+                # 面对目标方向
+                self._robots.rotate(idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                self._robots.forward(idx_robot, distance_r2w ** n_s * k_s)
+            elif abs(delta_theta) < ang_large:
+                if distance_r2w > d_far:
+                    # 距离远且不面对目标方向
+
+                    # 边开边转（有希望开近的时候面对目标）
+                    self._robots.rotate(idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, distance_r2w ** n_s * k_s)
+                elif distance_r2w > d_near:
+                    # 距离适中且不面对目标方向
+
+                    # 低速前进地转（防止凑近之后绕圈）
+                    self._robots.rotate(idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, 2)
+                else:
+                    # 距离近且不面对目标方向
+
+                    # 原地转（防止凑近之后绕圈）
+                    self._robots.rotate(idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, 0)
+            else:
+                if distance_r2w > d_far:
+                    # 距离远且背对目标方向
+                    # 倒车转向
+                    self._robots.rotate(idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, -2)
+                elif distance_r2w > d_near:
+                    # 距离适中且背对目标方向
+                    # 倒车转向
+                    self._robots.rotate(idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, -2)
+                elif distance_r2w > d_daoche:
+                    # 距离较近且背对目标方向
+                    # 倒车转向
+                    self._robots.rotate(idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, -2)
+                else:
+                    # 倒车距离且背对目标方向 √
+
+                    # 倒车
+                    delta_theta += math.pi
+                    self._robots.rotate(idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, -distance_r2w ** n_s * k_s)
+
 
 
 
