@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import copy
-
+import json
 
 class Network:
     upper_and_lower = [
@@ -9,8 +9,9 @@ class Network:
         (2*50, 7*50),
         (1, 1.5),
         (0.5, 1)
-        ]
-    def __init__(self, input_size=100*100, hidden_size=50, output_size=4, learning_rate=0.1):
+    ]
+
+    def __init__(self, input_size=3*58, hidden_size=50, output_size=4, learning_rate=0.1):
         self.input_size = input_size  # 输入大小
         self.hidden_size = hidden_size  # 隐藏层大小
         self.output_size = output_size  # 输出大小
@@ -26,7 +27,7 @@ class Network:
             hidden_size, output_size) / np.sqrt(hidden_size)  # 输出层权重矩阵
         self.b3 = np.zeros((1, output_size))  # 输出层偏置矩阵
 
-    def normalization(self, num, upper, lower,  normalize = True):
+    def normalization(self, num, upper, lower,  normalize=True):
         # 归一化函数，输入要归一化的数字和上限下限
         if normalize:
             return (num-lower)/(upper-lower)
@@ -70,27 +71,32 @@ class Network:
     def data_loader(self, data_path="database/"):
         X_list = []
         y_list = []
-        for data in os.listdir(data_path):#['2023-3-20-20_25_1_map1.txt', '2023-3-20-22_19_17_map2.txt', '2023-3-21-0_15_42_map3.txt', '2023-3-21-3_11_44_map4.txt']:#
+        # ['2023-3-20-20_25_1_map1.txt', '2023-3-20-22_19_17_map2.txt', '2023-3-21-0_15_42_map3.txt', '2023-3-21-3_11_44_map4.txt']:#
+        for data in os.listdir(data_path):
             file = open(os.path.join(data_path, data), 'r')
             y = list(map(float, file.readline().split(',')))
-            y_list.append([self.normalization(y[i], *self.upper_and_lower[i]) for i in range(len(y))])
+            y_list.append(
+                [self.normalization(y[i], *self.upper_and_lower[i]) for i in range(len(y))])
             tmp = []
-            for line in file.readlines():
-                for c in line:
+            for i, line in enumerate(file.readlines()):
+                for j, c in enumerate(line):
                     if c == '.':
-                        tmp.append(0)
+                        continue
                     elif c == 'A':
-                        tmp.append(10)
+                        tmp.extend([i, j, 10])
                     elif c == '\n':
                         continue
                     else:
-                        tmp.append(int(c))
+                        tmp.extend([i, j, int(c)])
+            file.close()
+            zeros = self.input_size - len(tmp)
+            tmp.extend([0]*zeros)
             # print(y_list)
             # print(tmp)
             X_list.append(tmp[:])
         return np.array([X_list]), np.array(y_list)
 
-    def training(self,  epochs=1000, learning_rate=0.01):
+    def training(self,  epochs=1000, learning_rate=0.02):
         # 加载数据集和目标输出
         X_list, y_list = self.data_loader()
         # 训练神经网络
@@ -100,28 +106,35 @@ class Network:
                                   learning_rate=learning_rate)
             print(F'epoch:{epoch}, loss:{loss}')
 
+    def save(self, weight_path='src/weight.py'):
+        file = open(weight_path, 'w')
+        file.write(f'W1 = {json.dumps(self.W1.tolist())}\n')       
+        file.write(f'W2 = {json.dumps(self.W2.tolist())}\n')
+        file.write(f'W3 = {json.dumps(self.W3.tolist())}\n')
+        file.write(f'b1 = {json.dumps(self.b1.tolist())}\n')
+        file.write(f'b2 = {json.dumps(self.b2.tolist())}\n')
+        file.write(f'b3 = {json.dumps(self.b3.tolist())}\n')
+        file.close()
 
-    def save(self, weight_path='src/weight.npz'):
-        np.savez(weight_path, W1=self.W1, W2=self.W2,
-                W3=self.W3, b1=self.b1, b2=self.b2, b3=self.b3)
+    def weight_loader(self):
+        import weight as weights
+        self.W1 = weights.W1
+        self.W2 = weights.W2
+        self.W3 = weights.W3
+        self.b1 = weights.b1
+        self.b2 = weights.b2
+        self.b3 = weights.b3
 
-    def weight_loader(self, weight_path='src/weight.npz'):
-        weights = np.load(weight_path)
-        self.W1 = weights['W1']
-        self.W2 = weights['W2']
-        self.W3 = weights['W3']
-        self.b1 = weights['b1']
-        self.b2 = weights['b2']
-        self.b3 = weights['b3']
 
-    def get_params(self, X:list):
+    def get_params(self, X: list):
+        zeros = self.input_size - len(X)
+        X.extend([0]*zeros)
         X = np.array([X])
         hidden_layer1 = self.sigmoid(np.dot(X, self.W1) + self.b1)
         hidden_layer2 = self.sigmoid(np.dot(hidden_layer1, self.W2) + self.b2)
         output_layer = np.dot(hidden_layer2, self.W3) + self.b3
         params = output_layer.tolist()[0]
-        return [self.normalization(params[i], *self.upper_and_lower[i],False) for i in range(len(params))]
-
+        return [self.normalization(params[i], *self.upper_and_lower[i], False) for i in range(len(params))]
 
 
 if __name__ == '__main__':

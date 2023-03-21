@@ -30,6 +30,7 @@ class Controller:
     MAX_WAIT = 3 * 50  # 最大等待时间
     SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
     SELL_DEBUFF = 0.8 # 非 7 卖给89的惩罚
+    CONSERVATIVE = 1+1/MOVE_SPEED*4 # 保守程度 最后时刻要不要操作
     # 人工势场常数
     ETA = 300  # 调整斥力大小的常数
     GAMMA = 10  # 调整吸引力大小的常数
@@ -63,7 +64,7 @@ class Controller:
         self.MOVE_SPEED = move_speed  # 估算移动时间
         self.MAX_WAIT = max_wait  # 最大等待时间
         self.SELL_WEIGHT = sell_weight  # 优先卖给格子被部分占用的
-        self.SELL_DEBUFF = sell_debuff
+        self.SELL_DEBUFF = sell_debuff # 将456卖给9的惩罚因子
         # 人工势场常数
         self.ETA = eta  # 调整斥力大小的常数
         self.GAMMA = gamma  # 调整吸引力大小的常数
@@ -295,7 +296,7 @@ class Controller:
                 # frame_sell = max(frame_move_to_sell,
                 #                  frame_wait_sell - frame_buy)  # 出售时间
                 total_frame = frame_buy + frame_move_to_sell  # 总时间
-                if total_frame + frame_id > MATCH_FRAME:  # 完成这套动作就超时了
+                if total_frame*self.CONSERVATIVE + frame_id > MATCH_FRAME:  # 完成这套动作就超时了
                     continue
                 time_rate = self.get_time_rate(
                     frame_move_to_sell)  # 时间损耗

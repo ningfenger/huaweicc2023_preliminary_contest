@@ -42,18 +42,15 @@ def read_map(map_in: Map, robot_group_in: RobotGroup):
                     x = num_line * 0.5 + 0.25
                     y = idx * 0.5 + 0.25
                     map_in.add_workstand(int(point_str), x, y)
-                    X.append(int(point_str))
+                    X.extend([num_line, idx, int(point_str)])
                 elif point_str == 'A':
                     # 机器人
                     x = num_line * 0.5 + 0.25
                     y = idx * 0.5 + 0.25
                     robot_group_in.add_init_location(num_robot, x, y)
                     num_robot += 1
-                    X.append(10)
-                elif point_str == '\n':
-                    continue
-                elif point_str == '.':
-                    X.append(0)
+                    X.extend([num_line, idx, 10])
+
         num_line += 1
 
 
@@ -104,7 +101,7 @@ if __name__ == '__main__':
     # 只需计算一次
     controller.cal_dis_workstand2workstand()
     network = Network()
-    network.weight_loader('weight.npz')
+    network.weight_loader()
     MOVE_SPEED, MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF = network.get_params(X)
     # controller.set_control_parameters(args.dis_1, args.velo_1, args.move_speed,
     #   int(args.max_wait), args.sell_weight, args.sell_debuff, args.eta, args.gamma, args.radius)
