@@ -36,8 +36,6 @@ def sign_pow(num_in, n):
         return abs(num_in) ** n
 
 
-def compute_time_to_arrive(dis, theta):
-    return 7.81833903 * abs(dis) + abs(theta) * 19.57800632
 
 def count_ones(n):
     # 初始化计数器
@@ -422,7 +420,6 @@ class Controller:
         return copy.deepcopy(self._dis_workstand2workstand[idx_workstand1, idx_workstand2])
 
     def get_delta_theta(self, idx_robot):
-        # 机器人-工作台1-工作台2 锐角
         idx_workstand = int(self._robots.get_status(
             feature_target_r, idx_robot))
         distance_r2w = self.get_dis_robot2workstand(idx_robot, idx_workstand)
@@ -437,30 +434,6 @@ class Controller:
         delta_theta = target_angle - now_theta
         delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
         return delta_theta
-
-    def get_delta_theta2target(self, idx_robot):
-        # 机器人到目标工作台theta
-        idx_workstand = int(self._robots.get_status(
-            feature_target_r, idx_robot))
-        distance_r2w = self.get_dis_robot2workstand(idx_robot, idx_workstand)
-
-        dx_r2w = self._delta_x_r2w[idx_robot,
-                                   idx_workstand] / distance_r2w  # 自己指向工作台
-        dy_r2w = self._delta_y_r2w[idx_robot,
-                                   idx_workstand] / distance_r2w  # 自己指向工作台
-
-        target_angle = np.arctan2(dy_r2w, dx_r2w)
-        return target_angle
-
-    def get_time_rww(self, idx_robot, idx_workstand1, idx_workstand2):
-        dis_r2w1 = self._dis_robot2workstand[idx_robot, idx_workstand1]
-        dis_w12w2 = self._dis_workstand2workstand[idx_workstand1, idx_workstand2]
-
-        theta_r2w1 = self.get_delta_theta2target(idx_robot)
-        theta_w12w2 = self.get_delta_theta(idx_robot)
-
-        return compute_time_to_arrive(dis_r2w1, theta_r2w1), compute_time_to_arrive(theta_w12w2, theta_r2w1)
-
 
     def calculate_potential_field(self, idx_robot, idx_workstand):
         # 计算位于current_pos处的机器人的势能场
