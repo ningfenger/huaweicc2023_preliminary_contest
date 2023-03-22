@@ -1,4 +1,3 @@
-#!/bin/bash
 # coding=utf-8
 from workstand import Map
 from robot import RobotGroup
@@ -20,7 +19,7 @@ parser.add_argument('--move_speed', default=1 / 3 *
 parser.add_argument('--max_wait', default=2*50, type=float, help='最大等待帧数')
 parser.add_argument('--sell_weight', default=1.2, type=float, help='优先生产权重')
 parser.add_argument('--sell_debuff', default=0.6, type=float, help='优先生产权重')
-parser.add_argument('--train', help='是否是训练模式')
+parser.add_argument('--train', action="store_true",help='是否是训练模式')
 
 def read_map(map_in: Map, robot_group_in: RobotGroup):
     num_robot = 0
@@ -97,10 +96,10 @@ if __name__ == '__main__':
     controller.cal_dis_workstand2workstand()
     network = Network()
     network.weight_loader()
-    MOVE_SPEED, MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF = network.get_params(X)
     if args.train:
         controller.set_control_parameters(args.move_speed,  int(args.max_wait), args.sell_weight, args.sell_debuff)
     else:
+        MOVE_SPEED, MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF = network.get_params(X)
         controller.set_control_parameters(MOVE_SPEED,  MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF)
     finish()
     while True:
