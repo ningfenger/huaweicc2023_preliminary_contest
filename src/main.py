@@ -1,4 +1,3 @@
-#!/bin/bash
 # coding=utf-8
 from workstand import Map
 from robot import RobotGroup
