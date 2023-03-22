@@ -12,12 +12,31 @@ feature_product_state_w = 5
 feature_material_pro_w = 6
 feature_product_pro_w = 7
 
+ITEMS_BUY = [0, 3000, 4400, 5800, 15400, 17200, 19200, 76000]  # 每个物品的购买价
+ITEMS_SELL = [0, 6000, 7600, 9200, 22500, 25000, 27500, 105000]
+cool_down_time_max = [0, 50, 50, 50, 500, 500, 500, 1000, 1, 1]
+WORKSTAND_IN = {1: [], 2: [], 3: [], 4: [1, 2], 5: [1, 3],
+                6: [2, 3], 7: [4, 5, 6], 8: [7], 9: list(range(1, 8))}
+WORKSTAND_OUT = {i: i for i in range(1, 8)}
+WORKSTAND_OUT[8] = None
+WORKSTAND_OUT[9] = None
+WORKSTAND_FULL = { # 记录每种工作台材料格慢的情况
+    4: sum([1<<i for i in (1,2)]),
+    5: sum([1<<i for i in (1,3)]),
+    6: sum([1<<i for i in (2,3)]),
+    7: sum([1<<i for i in (4,5,6)])
+}
+
 
 class Map:
     def __init__(self):
         # 工作台信息 array
         self._workstand = np.array([]).reshape(0, 8)
         self.count = 0
+        self.count_cell = 0
+        # 下面的变量初始化后提供给控制类决策分析
+        self.product_workstand_dict = {}
+        self.receive_cell_dict = {}
 
     def add_workstand(self, num_type, x, y):
         # 第一次读地图添加工作台
@@ -25,6 +44,28 @@ class Map:
         new_info = np.array(
             [num_type, x, y, 0.0, 0.0, 0.0] + [0] * 2).reshape(1, 8)
         self._workstand = np.concatenate([self._workstand, new_info], axis=0)
+
+        item_product = WORKSTAND_OUT[num_type]
+        if item_product is not None:
+            buy_price = ITEMS_BUY[item_product]
+            self.product_workstand_dict[self.count] = tuple([x, y, buy_price, item_product, self.count])  # 记录这个工作台产物的购买价格
+
+        else:
+            # 此工作台不生产任何物品
+            buy_price = np.inf
+            self.product_workstand_dict[self.count] = tuple([x, y, buy_price, np.nan, self.count])  # 记录这个工作台产物的购买价格
+
+        item_receive_set = WORKSTAND_IN[num_type]
+        if len(item_receive_set) > 0:
+            for item_receive in item_receive_set:
+                # 遍历此工作台接受的物品
+                sell_price = ITEMS_SELL[item_receive]
+                self.receive_cell_dict[self.count_cell] = tuple([x, y, sell_price, item_receive, self.count])
+                self.count_cell += 1
+        else:
+            # 此工作台不接收任何物品 不做任何操作
+            pass
+
         self.count += 1
 
     def update_platform(self, idx_platform, state_str):
@@ -63,6 +104,19 @@ class Map:
             return copy.deepcopy(self._workstand[:, [1, 2]])
         else:
             return copy.deepcopy(self._workstand[idx_workstand, [1, 2]])
+
+    def get_id_workstand_of_cell(self, key_cell):
+        _, _, _, material, idx_workstand = self.receive_cell_dict[key_cell]
+        return idx_workstand, material
+
+    def get_status(self, feature_id, idx_workstand):
+        # 获取指定机器人状态
+        # idx_workstand为-1表示获取所有机器人状态
+        if idx_workstand == -1:
+            return copy.deepcopy(self._workstand[:, feature_id])
+        else:
+
+            return copy.deepcopy(self._workstand[idx_workstand, feature_id])
 
     def __len__(self):
         return self.count
