@@ -6,6 +6,7 @@ from network import Network
 import sys
 import os
 try:
+    
     os.chdir('./src')
 except:
     pass
