@@ -19,3 +19,4 @@ python train_new.py 161 171 &
 python train_new.py 171 181 &
 python train_new.py 181 191 &
 python train_new.py 191 201 &
+./rm_replay.sh &
