@@ -15,17 +15,12 @@ import argparse
 
 
 parser = argparse.ArgumentParser(description='华为软件精英挑战赛2023 调参版')
-parser.add_argument('--dis_1', default=1.3, type=float, help='开始刹车的距离')
-parser.add_argument('--velo_1', default=1.1, type=float, help='刹车时的速度')
 parser.add_argument('--move_speed', default=1 / 3 *
                     50,  type=float, help='估算移动速度')
 parser.add_argument('--max_wait', default=2*50, type=float, help='最大等待帧数')
 parser.add_argument('--sell_weight', default=1.2, type=float, help='优先生产权重')
 parser.add_argument('--sell_debuff', default=0.6, type=float, help='优先生产权重')
-parser.add_argument('--eta', default=300, type=float, help='调整斥力大小的常数')
-parser.add_argument('--gamma', default=10, type=float, help='调整吸引力大小的常数')
-parser.add_argument('--radius', default=3, type=float, help='定义斥力半径范围')
-
+parser.add_argument('--train', help='是否是训练模式')
 
 def read_map(map_in: Map, robot_group_in: RobotGroup):
     num_robot = 0
@@ -103,10 +98,10 @@ if __name__ == '__main__':
     network = Network()
     network.weight_loader()
     MOVE_SPEED, MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF = network.get_params(X)
-    # controller.set_control_parameters(args.dis_1, args.velo_1, args.move_speed,
-    #   int(args.max_wait), args.sell_weight, args.sell_debuff, args.eta, args.gamma, args.radius)
-    controller.set_control_parameters(controller.DIS_1, controller.VELO_1, MOVE_SPEED,
-                                      MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF, controller.ETA, controller.GAMMA, controller.RADIUS)
+    if args.train:
+        controller.set_control_parameters(args.move_speed,  int(args.max_wait), args.sell_weight, args.sell_debuff)
+    else:
+        controller.set_control_parameters(MOVE_SPEED,  MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF)
     finish()
     while True:
         try:

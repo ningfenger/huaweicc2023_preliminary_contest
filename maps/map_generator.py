@@ -39,7 +39,7 @@ def gen_map():
     #     print(''.join(line))
     return [''.join(line)+'\n' for line in new_map]
 if __name__ == "__main__":
-    for i in range(5,101):
+    for i in range(200,201):
         file = open(f'maps/{i}.txt', 'w')
         new_map = gen_map()
         file.writelines(new_map)
