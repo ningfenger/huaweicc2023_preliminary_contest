@@ -51,16 +51,17 @@ def get_dx_dy_d(a, b):
 
 class Controller:
     # 控制参数
-    DIS_1 = 1.3
-    VELO_1 = 1.1
     MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
     MAX_WAIT = 3 * 50  # 最大等待时间
     SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
+    SELL_DEBUFF = 0.8 # 非 7 卖给89的惩罚
+    CONSERVATIVE = 1+1/MOVE_SPEED*4 # 保守程度 最后时刻要不要操作
     # 人工势场常数
     ETA = 300  # 调整斥力大小的常数
     GAMMA = 10  # 调整吸引力大小的常数
     RADIUS = 3  # 定义斥力半径范围
     BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
+
 
     def __init__(self, robots: RobotGroup, workstands: Map):
         self._robots = robots
@@ -116,16 +117,12 @@ class Controller:
             for itemID in WORKSTAND_IN[typeID]:
                 ITEMS_NEED[itemID].append(idx)
 
-    def set_control_parameters(self, dis_1: float, velo_1: float, move_speed: float, max_wait: int, sell_weight: float, eta: float, gamma: float, radius: float):
-        self.DIS_1 = dis_1
-        self.VELO_1 = velo_1
+    def set_control_parameters(self, move_speed:float, max_wait:int, sell_weight:float, sell_debuff:float):
         self.MOVE_SPEED = move_speed  # 估算移动时间
         self.MAX_WAIT = max_wait  # 最大等待时间
         self.SELL_WEIGHT = sell_weight  # 优先卖给格子被部分占用的
-        # 人工势场常数
-        self.ETA = eta  # 调整斥力大小的常数
-        self.GAMMA = gamma  # 调整吸引力大小的常数
-        self.RADIUS = radius  # 定义斥力半径范围
+        self.SELL_DEBUFF = sell_debuff # 将456卖给9的惩罚因子
+
 
     def cal_dis_robot2robot(self):
         # 计算所有机器人两两之间的距离 向量化 每来一帧调用一次
@@ -705,14 +702,15 @@ class Controller:
                 frame_sell = max(frame_move_to_sell,
                                  frame_wait_sell - frame_buy)  # 出售时间
                 total_frame = frame_buy + frame_sell  # 总时间
-                if total_frame + frame_id > MATCH_FRAME:  # 完成这套动作就超时了
+                if total_frame*self.CONSERVATIVE + frame_id > MATCH_FRAME:  # 完成这套动作就超时了
                     continue
                 time_rate = self.get_time_rate(
                     frame_move_to_sell)  # 时间损耗
                 sell_weight = self.SELL_WEIGHT if sell_material else 1
+                sell_debuff = self.SELL_DEBUFF if sell_type == 9 and workstand_type!=7 else 1
                 radio = (
                     ITEMS_SELL[workstand_type] * time_rate - ITEMS_BUY[
-                        workstand_type]) / total_frame * sell_weight * buy_weight
+                        workstand_type]) / total_frame*sell_weight*buy_weight*sell_debuff
                 if radio > max_radio:
                     max_radio = radio
                     self._robots.robots_plan[idx_robot] = [

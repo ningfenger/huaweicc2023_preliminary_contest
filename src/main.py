@@ -3,6 +3,7 @@
 from workstand import Map
 from robot import RobotGroup
 from controller import Controller
+from network import Network
 import sys
 import os
 try:
@@ -11,13 +12,16 @@ except:
     pass
 import time
 
+
+
 def read_map(map_in: Map, robot_group_in: RobotGroup):
     num_robot = 0
     num_line = 0
+    X = []
     while True:
         line_read = input()
         if line_read == "OK":
-            return
+            return X
         else:
             for idx, point_str in enumerate(line_read):
                 if point_str.isdigit() and 1 <= int(point_str) <= 9:
@@ -25,13 +29,17 @@ def read_map(map_in: Map, robot_group_in: RobotGroup):
                     x = num_line * 0.5 + 0.25
                     y = idx * 0.5 + 0.25
                     map_in.add_workstand(int(point_str), x, y)
+                    X.extend([num_line, idx, int(point_str)])
                 elif point_str == 'A':
                     # 机器人
                     x = num_line * 0.5 + 0.25
                     y = idx * 0.5 + 0.25
                     robot_group_in.add_init_location(num_robot, x, y)
                     num_robot += 1
+                    X.extend([num_line, idx, 10])
+
         num_line += 1
+
 
 
 def get_info(map_in, robot_group):
@@ -72,12 +80,16 @@ if __name__ == '__main__':
     robot_group_obj = RobotGroup()
     map_obj = Map()
     # time.sleep(20)
-    read_map(map_obj, robot_group_obj)
+    X = read_map(map_obj, robot_group_obj)
     controller = Controller(robot_group_obj, map_obj)
     controller.init_ITEMS_NEED()
     # time.sleep(5)
     # 只需计算一次
     controller.cal_dis_workstand2workstand()
+    network = Network()
+    network.weight_loader()
+    MOVE_SPEED, MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF = network.get_params(X)
+    controller.set_control_parameters(MOVE_SPEED,  MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF)
     finish()
     while True:
         try:
