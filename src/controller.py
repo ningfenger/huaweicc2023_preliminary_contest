@@ -5,6 +5,7 @@ import numpy as np
 import copy
 import math
 import logging
+import pickle
 
 # 环境常量
 MATCH_FRAME = 3 * 60 * 50  # 总帧数
@@ -21,6 +22,10 @@ GAMMA = 10  # 调整吸引力大小的常数
 RADIUS = 3  # 定义斥力半径范围
 # 测试
 DEBUG = False
+time_record = []
+robot_start = [0] * 4
+robot_dis = [0] * 4
+robot_theta = [0] * 4
 
 
 def sign_pow(num_in, n):
@@ -54,14 +59,13 @@ class Controller:
     MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
     MAX_WAIT = 3 * 50  # 最大等待时间
     SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
-    SELL_DEBUFF = 0.8 # 非 7 卖给89的惩罚
-    CONSERVATIVE = 1+1/MOVE_SPEED*4 # 保守程度 最后时刻要不要操作
+    SELL_DEBUFF = 0.8  # 非 7 卖给89的惩罚
+    CONSERVATIVE = 1+1/MOVE_SPEED*4  # 保守程度 最后时刻要不要操作
     # 人工势场常数
     ETA = 300  # 调整斥力大小的常数
     GAMMA = 10  # 调整吸引力大小的常数
     RADIUS = 3  # 定义斥力半径范围
     BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
-
 
     def __init__(self, robots: RobotGroup, workstands: Map):
         self._robots = robots
@@ -117,12 +121,11 @@ class Controller:
             for itemID in WORKSTAND_IN[typeID]:
                 ITEMS_NEED[itemID].append(idx)
 
-    def set_control_parameters(self, move_speed:float, max_wait:int, sell_weight:float, sell_debuff:float):
+    def set_control_parameters(self, move_speed: float, max_wait: int, sell_weight: float, sell_debuff: float):
         self.MOVE_SPEED = move_speed  # 估算移动时间
         self.MAX_WAIT = max_wait  # 最大等待时间
         self.SELL_WEIGHT = sell_weight  # 优先卖给格子被部分占用的
-        self.SELL_DEBUFF = sell_debuff # 将456卖给9的惩罚因子
-
+        self.SELL_DEBUFF = sell_debuff  # 将456卖给9的惩罚因子
 
     def cal_dis_robot2robot(self):
         # 计算所有机器人两两之间的距离 向量化 每来一帧调用一次
@@ -390,8 +393,7 @@ class Controller:
             if not try_flag and self._dis_cell2workstand[key_cell, target_workstand] < min_dis:
                 min_dis = self._dis_cell2workstand[key_cell, target_workstand]
                 idx_new_cell = key_cell
-        if idx_new_cell == 8:
-            aaaaaaa = 1000
+
         self._robots.set_status_item(
             feature_target_sell_r, idx_robot, idx_new_cell)
         self._robots.set_status_item(feature_target_r, idx_robot, idx_new_cell)
@@ -414,6 +416,22 @@ class Controller:
     def get_dis_workstand2workstand(self, idx_workstand1, idx_workstand2):
         # 两个工作台间的距离
         return copy.deepcopy(self._dis_workstand2workstand[idx_workstand1, idx_workstand2])
+
+    def get_delta_theta(self, idx_robot):
+        idx_workstand = int(self._robots.get_status(
+            feature_target_r, idx_robot))
+        distance_r2w = self.get_dis_robot2workstand(idx_robot, idx_workstand)
+
+        dx_r2w = self._delta_x_r2w[idx_robot,
+                                   idx_workstand] / distance_r2w  # 自己指向工作台
+        dy_r2w = self._delta_y_r2w[idx_robot,
+                                   idx_workstand] / distance_r2w  # 自己指向工作台
+
+        target_angle = np.arctan2(dy_r2w, dx_r2w)
+        now_theta = self._robots.get_status(feature_theta_r, idx_robot)
+        delta_theta = target_angle - now_theta
+        delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
+        return delta_theta
 
     def calculate_potential_field(self, idx_robot, idx_workstand):
         # 计算位于current_pos处的机器人的势能场
@@ -479,51 +497,6 @@ class Controller:
         total_field = repulsive_field + attractive_field
         desired_angle = np.arctan2(total_field[1], total_field[0])
         return desired_angle, distance_r2w, near_flag
-
-    def move2loc(self, idx_robot, speed):
-        # 输入控制机器人编号 目标工作台编号 期望速度
-        # 结合人工势场计算速度
-        idx_target = self._robots.get_status(feature_target_r, idx_robot)
-
-        desired_theta, distance_r2w, near_flag = self.calculate_potential_field(
-            idx_robot, idx_target)
-
-        # 比例控制 追踪目标方向
-        # 计算相差方向 P
-        now_theta = self._robots.get_status(feature_theta_r, idx_robot)
-        now_ang_velo = self._robots.get_status(feature_ang_velo_r, idx_robot)
-        delta_theta = desired_theta - now_theta
-        delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
-        k = 10
-        # self._robots.rotate(idx_robot, delta_theta * k)
-        if near_flag:
-            # 和其他机器人足够近时
-            # speed = 3 * (idx_robot+1) / 4
-            delta_theta += 0.15
-        if abs(delta_theta) < math.pi * 0.8 or distance_r2w > 3:
-            self._robots.rotate(idx_robot, delta_theta * k)
-            if abs(delta_theta) < math.pi / 3:
-                self._robots.forward(idx_robot, speed)
-            else:
-                self._robots.forward(idx_robot, delta_theta * k*0.25)
-        else:
-            self._robots.rotate(idx_robot, -delta_theta * k)
-            self._robots.forward(idx_robot, -speed)
-        # if delta_theta > -0.9 * math.pi and desired_theta < 0.9 * math.pi:
-        #     # 需要顺时针转动追踪目标方向
-        #     self._robots.rotate(idx_robot, delta_theta * k)
-        # elif abs(now_ang_velo) > 0.01:
-        #     # 防止有转速时在小区间震荡
-        #     # 按原转速冲过震荡区间
-        #     self._robots.rotate(idx_robot, np.sign(now_ang_velo))
-        # else:
-        #     # 无转速按原策略
-        #     self._robots.rotate(idx_robot, delta_theta * k)
-        #
-        # if abs(delta_theta) > math.pi / 3 and distance_r2w < 5:
-        #     speed = abs(delta_theta) * k * 0.25
-        #
-        # self._robots.forward(idx_robot, speed)
 
     def move2loc_new(self, idx_robot):
         # 输入控制机器人编号 目标工作台编号 期望速度
@@ -614,6 +587,16 @@ class Controller:
                         idx_robot, sign_pow(delta_theta, n_r) * k_r)
                     self._robots.forward(idx_robot, -distance_r2w ** n_s * k_s)
 
+    def pre_rotate(self, idx_robot, next_walkstand):
+        desired_theta, _, _ = self.calculate_potential_field(
+            idx_robot, next_walkstand)
+        now_theta = self._robots.get_status(feature_theta_r, idx_robot)
+        delta_theta = desired_theta - now_theta
+        delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
+        n_r = 1.5
+        k_r = 15
+        self._robots.rotate(idx_robot, sign_pow(delta_theta, n_r) * k_r)
+
     def get_time_rate(self, frame_sell: float) -> float:
         # 计算时间损失
         if frame_sell >= 9000:
@@ -691,7 +674,7 @@ class Controller:
                     # 阻塞或者材料格没满
                     if sell_product_time in [-1, 0] or sell_material != WORKSTAND_FULL[sell_type]:
                         continue
-                    elif sell_product_status==1: # 到这里说明材料格和产品格都满了不会再消耗原料格了
+                    elif sell_product_status == 1:  # 到这里说明材料格和产品格都满了不会再消耗原料格了
                         continue
                     else:
                         frame_wait_sell = sell_product_time
@@ -707,7 +690,7 @@ class Controller:
                 time_rate = self.get_time_rate(
                     frame_move_to_sell)  # 时间损耗
                 sell_weight = self.SELL_WEIGHT if sell_material else 1
-                sell_debuff = self.SELL_DEBUFF if sell_type == 9 and workstand_type!=7 else 1
+                sell_debuff = self.SELL_DEBUFF if sell_type == 9 and workstand_type != 7 else 1
                 radio = (
                     ITEMS_SELL[workstand_type] * time_rate - ITEMS_BUY[
                         workstand_type]) / total_frame*sell_weight*buy_weight*sell_debuff
@@ -756,6 +739,7 @@ class Controller:
             elif robot_status == RobotGroup.WAIT_TO_BUY_STATUS:
                 # 【等待购买】
                 target_walkstand, next_walkstand = self._robots.robots_plan[idx_robot]
+                self.pre_rotate(idx_robot, next_walkstand)
                 product_status = int(
                     self._workstands.get_workstand_status(target_walkstand)[3])
                 # 如果在等待，提前转向
