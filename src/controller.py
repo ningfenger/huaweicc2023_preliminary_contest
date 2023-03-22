@@ -26,6 +26,7 @@ time_record = []
 robot_start = [0] * 4
 robot_dis = [0] * 4
 robot_theta = [0] * 4
+robot_arrive = [False] * 4
 
 
 def sign_pow(num_in, n):
@@ -714,7 +715,9 @@ class Controller:
     def control(self, frame_id: int):
         self.cal_dis_robot2workstand()
         self.cal_dis_robot2robot()
-
+        if frame_id == MATCH_FRAME - 1:
+            with open('record.pkl', 'wb') as f:
+                pickle.dump(time_record, f)
         self.cal_dis_robot2workstand2cell()
         idx_robot = 0
         sell_out_list = []  # 等待处理预售的机器人列表
@@ -723,7 +726,15 @@ class Controller:
                 feature_status_r, idx_robot))
             if robot_status == RobotGroup.FREE_STATUS:
                 # 【空闲】执行调度策略
+
                 if self.choise(frame_id, idx_robot):
+                    ##### 记录任务分配时的时间 距离 角度相差
+                    robot_start[idx_robot] = frame_id
+                    robot_dis[idx_robot] = self._dis_robot2workstand[
+                        idx_robot, int(self._robots.get_status(feature_target_r, idx_robot))]  #####
+                    robot_theta[idx_robot] = self.get_delta_theta(idx_robot)
+                    robot_arrive[idx_robot] = False
+                    ##### 记录任务分配时的时间 距离 角度相差
                     continue
             elif robot_status == RobotGroup.MOVE_TO_BUY_STATUS:
                 # 【购买途中】
@@ -733,6 +744,12 @@ class Controller:
                 # 判定是否进入交互范围
                 if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
                         feature_target_r, idx_robot):
+                    ##### 记录任务分配时的时间 距离 角度相差
+                    if robot_arrive[idx_robot] == False:
+                        delta_time = frame_id - robot_start[idx_robot]
+                        robot_arrive[idx_robot] = True
+                        time_record.append([robot_dis[idx_robot], robot_theta[idx_robot], delta_time])
+                    ##### 记录任务分配时的时间 距离 角度相差
                     self._robots.set_status_item(
                         feature_status_r, idx_robot, RobotGroup.WAIT_TO_BUY_STATUS)  # 切换为 【等待购买】
                     continue
@@ -752,6 +769,13 @@ class Controller:
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 切换为 【出售途中】
                         # logging.debug(f"{idx_robot}->way to sell")
+                        ##### 记录任务分配时的时间 距离 角度相差
+                        robot_start[idx_robot] = frame_id
+                        robot_dis[idx_robot] = self._dis_robot2workstand[
+                            idx_robot, int(self._robots.get_status(feature_target_r, idx_robot))]  #####
+                        robot_theta[idx_robot] = self.get_delta_theta(idx_robot)
+                        robot_arrive[idx_robot] = False
+                        ##### 记录任务分配时的时间 距离 角度相差
                         continue
                     else:
                         self._robots.set_status_item(
@@ -771,6 +795,12 @@ class Controller:
                     self._robots.set_status_item(
                         feature_status_r, idx_robot, RobotGroup.WAIT_TO_SELL_STATUS)  # 切换为 【等待出售】
                     # logging.debug(f"{idx_robot}->ready to sell")
+                    ##### 记录任务分配时的时间 距离 角度相差
+                    if robot_arrive[idx_robot] == False:
+                        delta_time = frame_id - robot_start[idx_robot]
+                        robot_arrive[idx_robot] = True
+                        time_record.append([robot_dis[idx_robot], robot_theta[idx_robot], delta_time])
+                    ##### 记录任务分配时的时间 距离 角度相差
                     continue
 
             elif robot_status == RobotGroup.WAIT_TO_SELL_STATUS:
