@@ -25,6 +25,7 @@ time_record = []
 robot_start = [0] * 4
 robot_dis = [0] * 4
 robot_theta = [0] * 4
+robot_arrive = [False] * 4
 
 
 def sign_pow(num_in, n):
@@ -32,6 +33,10 @@ def sign_pow(num_in, n):
         return -abs(num_in) ** n
     else:
         return abs(num_in) ** n
+
+
+def compute_time_to_arrive(dis, theta):
+    return 7.81833903 * abs(dis) + abs(theta) * 19.57800632
 
 
 def count_ones(n):
@@ -55,15 +60,10 @@ def get_dx_dy_d(a, b):
 
 class Controller:
     # 控制参数
-    MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
     MAX_WAIT = 3 * 50  # 最大等待时间
     SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
     SELL_DEBUFF = 0.8  # 非 7 卖给89的惩罚
-    CONSERVATIVE = 1+1/MOVE_SPEED*4  # 保守程度 最后时刻要不要操作
-    # 人工势场常数
-    ETA = 300  # 调整斥力大小的常数
-    GAMMA = 10  # 调整吸引力大小的常数
-    RADIUS = 3  # 定义斥力半径范围
+    CONSERVATIVE = 1  # 保守程度 最后时刻要不要操作
     BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
 
     def __init__(self, robots: RobotGroup, workstands: Map):
@@ -120,8 +120,7 @@ class Controller:
             for itemID in WORKSTAND_IN[typeID]:
                 ITEMS_NEED[itemID].append(idx)
 
-    def set_control_parameters(self, move_speed: float, max_wait: int, sell_weight: float, sell_debuff: float):
-        self.MOVE_SPEED = move_speed  # 估算移动时间
+    def set_control_parameters(self, max_wait: int, sell_weight: float, sell_debuff: float):
         self.MAX_WAIT = max_wait  # 最大等待时间
         self.SELL_WEIGHT = sell_weight  # 优先卖给格子被部分占用的
         self.SELL_DEBUFF = sell_debuff  # 将456卖给9的惩罚因子
@@ -356,8 +355,6 @@ class Controller:
             r_id = self._index_tran_r[r_id]
             w_id = self._index_tran_w[w_id]
             c_id = self._index_tran_c[c_id]
-            if w_id == 8:
-                aaaaaa = 0
             self._robots.set_status_item(feature_target_buy_r, r_id, w_id)
             self._robots.set_status_item(feature_target_sell_r, r_id, c_id)
             self._robot_unlock[r_id] = False
@@ -417,20 +414,41 @@ class Controller:
         return copy.deepcopy(self._dis_workstand2workstand[idx_workstand1, idx_workstand2])
 
     def get_delta_theta(self, idx_robot):
+        # 机器人头指向 和机器人指向工作台 的夹角
         idx_workstand = int(self._robots.get_status(
             feature_target_r, idx_robot))
-        distance_r2w = self.get_dis_robot2workstand(idx_robot, idx_workstand)
 
         dx_r2w = self._delta_x_r2w[idx_robot,
-                                   idx_workstand] / distance_r2w  # 自己指向工作台
+                                   idx_workstand]
         dy_r2w = self._delta_y_r2w[idx_robot,
-                                   idx_workstand] / distance_r2w  # 自己指向工作台
+                                   idx_workstand]
 
         target_angle = np.arctan2(dy_r2w, dx_r2w)
         now_theta = self._robots.get_status(feature_theta_r, idx_robot)
         delta_theta = target_angle - now_theta
         delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
         return delta_theta
+
+    def get_delta_theta2target(self, idx_robot, idx_workstand1, idx_workstand2):
+        # 机器人指向工作台1 和工作台1指向工作台2的夹角
+        dx_r2w1 = self._delta_x_r2w[idx_robot, idx_workstand1]
+        dy_r2w1 = self._delta_y_r2w[idx_robot, idx_workstand1]
+        # 机器人指向工作台1 的角度
+        target_angle1 = np.arctan2(dy_r2w1, dx_r2w1)
+        dx_w12w2 = self._delta_x_w2w[idx_workstand1, idx_workstand2]
+        dy_w12w2 = self._delta_y_w2w[idx_workstand1,  idx_workstand2]
+        # 工作台1指向工作台2 的角度
+        target_angle2 = np.arctan2(dy_w12w2, dx_w12w2)
+        return target_angle1 - target_angle2
+
+    def get_time_rww(self, idx_robot, idx_workstand1, idx_workstand2):
+        dis_r2w1 = self._dis_robot2workstand[idx_robot, idx_workstand1]
+        dis_w12w2 = self._dis_workstand2workstand[idx_workstand1, idx_workstand2]
+
+        theta_r2w1 = self.get_delta_theta(idx_robot)
+        theta_w12w2 = self.get_delta_theta2target(idx_robot, idx_workstand1, idx_workstand2)
+
+        return compute_time_to_arrive(dis_r2w1, theta_r2w1), compute_time_to_arrive(theta_w12w2, theta_r2w1)
 
     def calculate_potential_field(self, idx_robot, idx_workstand):
         # 计算位于current_pos处的机器人的势能场
@@ -472,14 +490,59 @@ class Controller:
 
                 ang_other = math.acos(
                     np.dot(dircos_other, np.array([dx_robot, dy_robot])))
+
+                v_robot = math.sqrt(self._robots.get_status(feature_line_velo_x_r, idx_robot)
+                                    ** 2 + self._robots.get_status(feature_line_velo_y_r, idx_robot) ** 2)
+                v_other = math.sqrt(self._robots.get_status(feature_line_velo_x_r, idx_other)
+                                    ** 2 + self._robots.get_status(feature_line_velo_y_r, idx_other) ** 2)
+                m_robot = self._robots.get_status(
+                    feature_materials_r, idx_robot)
+                m_other = self._robots.get_status(
+                    feature_materials_r, idx_other)
                 if distance_robot < 2 and idx_robot < idx_other and math.acos(np.dot(dircos_robot2other, dircos_robot)) < math.pi / 4:
                     near_flag = idx_other
-                # 如果机器人之间的距离小于一定半径范围，则计算斥力
-                if distance_robot < RADIUS and (ang_robot < math.pi * 0.3 or ang_other < math.pi * 0.3):
+
+                # if self._robots.get_status(feature_materials_r, idx_robot) < self._robots.get_status(feature_materials_r,
+                #                                                                                    idx_other):
+                #     m_flag = True
+                # else:
+                #     if idx_robot > idx_other:
+                #         m_flag = True
+                #     else:
+                #         m_flag = False
+                # # 如果机器人之间的距离小于一定半径范围，则计算斥力
+                # if distance_robot < RADIUS and m_flag: # and (ang_robot < math.pi * 0.3 or ang_other < math.pi * 0.3):
+                #     repulsive_force = 0.5 * idx_robot * ETA * \
+                #         ((1.0 / distance_robot) - (1.0 / RADIUS)) ** 2
+                #     repulsive_field[0] -= repulsive_force * dx_robot
+                #     repulsive_field[1] -= repulsive_force * dy_robot
+
+                # # 如果机器人之间的距离小于一定半径范围，则计算斥力
+                # and (ang_robot < math.pi * 0.3 or ang_other < math.pi * 0.3):
+                if distance_robot < RADIUS and m_robot <= m_other and idx_robot < idx_other:
                     repulsive_force = 0.5 * idx_robot * ETA * \
                         ((1.0 / distance_robot) - (1.0 / RADIUS)) ** 2
                     repulsive_field[0] -= repulsive_force * dx_robot
                     repulsive_field[1] -= repulsive_force * dy_robot
+
+                # m_flag = False
+                # if m_robot < m_other:
+                #     m_flag = True
+                # elif m_robot == m_other:
+                #     if v_robot < v_other:
+                #         m_flag = True
+                #     else:
+                #         if idx_robot < idx_other:
+                #             m_flag = True
+                #
+                #
+                #
+                # # # 如果机器人之间的距离小于一定半径范围，则计算斥力
+                # if distance_robot < RADIUS and m_flag:  # and (ang_robot < math.pi * 0.3 or ang_other < math.pi * 0.3):
+                #     repulsive_force = 0.5 * idx_robot * ETA * \
+                #                       ((1.0 / distance_robot) - (1.0 / RADIUS)) ** 2
+                #     repulsive_field[0] -= repulsive_force * dx_robot
+                #     repulsive_field[1] -= repulsive_force * dy_robot
 
         # 计算机器人到目标点的吸引力
         distance_r2w = self.get_dis_robot2workstand(idx_robot, idx_workstand)
@@ -489,7 +552,7 @@ class Controller:
         dy_r2w = self._delta_y_r2w[idx_robot,
                                    idx_workstand] / distance_r2w  # 自己指向工作台
 
-        attractive_force = 0.5 * self.GAMMA * distance_r2w ** 2
+        attractive_force = 0.5 * GAMMA * distance_r2w ** 2
         attractive_field[0] = attractive_force * dx_r2w
         attractive_field[1] = attractive_force * dy_r2w
 
@@ -646,8 +709,8 @@ class Controller:
             frame_wait_buy = product_time if product_status == 0 else 0  # 生产所需时间，如果已有商品则为0
             if frame_wait_buy > self.MAX_WAIT:
                 continue
-            frame_move_to_buy = self.get_dis_robot2workstand(
-                idx_robot, idx_workstand) * self.MOVE_SPEED
+            # frame_move_to_buy = self.get_dis_robot2workstand(
+            #     idx_robot, idx_workstand) * self.MOVE_SPEED
             buy_weight = self.BUY_WEIGHT[workstand_type]
             # 需要这个产品的工作台
             for idx_worksand_to_sell in ITEMS_NEED[workstand_type]:
@@ -677,8 +740,9 @@ class Controller:
                         continue
                     else:
                         frame_wait_sell = sell_product_time
-                frame_move_to_sell = self.get_dis_workstand2workstand(
-                    idx_workstand, idx_worksand_to_sell) * self.MOVE_SPEED
+                frame_move_to_buy, frame_move_to_sell= self.get_time_rww(idx_robot, idx_workstand, idx_worksand_to_sell)
+                # frame_move_to_sell = self.get_dis_workstand2workstand(
+                #     idx_workstand, idx_worksand_to_sell) * self.MOVE_SPEED
                 frame_buy = max(frame_move_to_buy,
                                 frame_wait_buy)  # 购买时间
                 frame_sell = max(frame_move_to_sell,
@@ -713,7 +777,6 @@ class Controller:
     def control(self, frame_id: int):
         self.cal_dis_robot2workstand()
         self.cal_dis_robot2robot()
-
         self.cal_dis_robot2workstand2cell()
         idx_robot = 0
         sell_out_list = []  # 等待处理预售的机器人列表
@@ -722,7 +785,15 @@ class Controller:
                 feature_status_r, idx_robot))
             if robot_status == RobotGroup.FREE_STATUS:
                 # 【空闲】执行调度策略
+
                 if self.choise(frame_id, idx_robot):
+                    # 记录任务分配时的时间 距离 角度相差
+                    robot_start[idx_robot] = frame_id
+                    robot_dis[idx_robot] = self._dis_robot2workstand[
+                        idx_robot, int(self._robots.get_status(feature_target_r, idx_robot))]
+                    robot_theta[idx_robot] = self.get_delta_theta(idx_robot)
+                    robot_arrive[idx_robot] = False
+                    # 记录任务分配时的时间 距离 角度相差
                     continue
             elif robot_status == RobotGroup.MOVE_TO_BUY_STATUS:
                 # 【购买途中】
@@ -732,6 +803,13 @@ class Controller:
                 # 判定是否进入交互范围
                 if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
                         feature_target_r, idx_robot):
+                    # 记录任务分配时的时间 距离 角度相差
+                    if robot_arrive[idx_robot] == False:
+                        delta_time = frame_id - robot_start[idx_robot]
+                        robot_arrive[idx_robot] = True
+                        time_record.append(
+                            [robot_dis[idx_robot], robot_theta[idx_robot], delta_time])
+                    # 记录任务分配时的时间 距离 角度相差
                     self._robots.set_status_item(
                         feature_status_r, idx_robot, RobotGroup.WAIT_TO_BUY_STATUS)  # 切换为 【等待购买】
                     continue
@@ -751,6 +829,14 @@ class Controller:
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 切换为 【出售途中】
                         # logging.debug(f"{idx_robot}->way to sell")
+                        # 记录任务分配时的时间 距离 角度相差
+                        robot_start[idx_robot] = frame_id
+                        robot_dis[idx_robot] = self._dis_robot2workstand[
+                            idx_robot, int(self._robots.get_status(feature_target_r, idx_robot))]
+                        robot_theta[idx_robot] = self.get_delta_theta(
+                            idx_robot)
+                        robot_arrive[idx_robot] = False
+                        # 记录任务分配时的时间 距离 角度相差
                         continue
                     else:
                         self._robots.set_status_item(
@@ -770,6 +856,13 @@ class Controller:
                     self._robots.set_status_item(
                         feature_status_r, idx_robot, RobotGroup.WAIT_TO_SELL_STATUS)  # 切换为 【等待出售】
                     # logging.debug(f"{idx_robot}->ready to sell")
+                    # 记录任务分配时的时间 距离 角度相差
+                    if robot_arrive[idx_robot] == False:
+                        delta_time = frame_id - robot_start[idx_robot]
+                        robot_arrive[idx_robot] = True
+                        time_record.append(
+                            [robot_dis[idx_robot], robot_theta[idx_robot], delta_time])
+                    # 记录任务分配时的时间 距离 角度相差
                     continue
 
             elif robot_status == RobotGroup.WAIT_TO_SELL_STATUS:

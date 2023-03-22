@@ -12,11 +12,10 @@ class Network:
         (0.5, 1)
     ]
 
-    def __init__(self, input_size=3*58, hidden_size=50, output_size=4, learning_rate=0.1):
+    def __init__(self, input_size=3*58, hidden_size=50, output_size=3):
         self.input_size = input_size  # 输入大小
         self.hidden_size = hidden_size  # 隐藏层大小
         self.output_size = output_size  # 输出大小
-        self.learning_rate = learning_rate  # 学习率
         # 权重和偏置
         self.W1 = np.random.randn(
             input_size, hidden_size) / np.sqrt(input_size)  # 第一层权重矩阵

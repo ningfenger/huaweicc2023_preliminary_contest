@@ -14,25 +14,23 @@ def find_best(map_num):
     best_value = 0
     best_param = []
     print(map_num)
-    for move_speed in range(2,6):
-        for max_wait in range(2,8):
-            for sell_weight in range(6):
-                for sell_debuff in range(5,11):
-                    MOVE_SPEED = 1 / move_speed * 50
-                    MAX_WAIT = max_wait * 50
-                    SELL_WEIGHT = 1+sell_weight/10
-                    SELL_DEBUFF = sell_debuff/10
-                    cmd = f'{Robot} "python src/main.py --train --move_speed {MOVE_SPEED} --max_wait {MAX_WAIT} --sell_weight {SELL_WEIGHT} --sell_debuff {SELL_DEBUFF}" -f -m maps/{map_num}.txt'
-                    try:
-                        res = os.popen(cmd).readlines()[-1]
-                        score = eval(res)['score']
-                        param = [MOVE_SPEED, MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF]
-                        print(f"{param}:{score}")
-                        if score > best_value:
-                            best_value = score
-                            best_param = param
-                    except:
-                        return None
+    for max_wait in range(2,8*2):
+        for sell_weight in range(6*2):
+            for sell_debuff in range(10,21):
+                MAX_WAIT = max_wait * 50/2
+                SELL_WEIGHT = 1+sell_weight/10/2
+                SELL_DEBUFF = sell_debuff/20
+                cmd = f'{Robot} "python src/main.py --train --max_wait {MAX_WAIT} --sell_weight {SELL_WEIGHT} --sell_debuff {SELL_DEBUFF}" -f -m maps/{map_num}.txt'
+                try:
+                    res = os.popen(cmd).readlines()[-1]
+                    score = eval(res)['score']
+                    param = [MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF]
+                    print(f"{param}:{score}")
+                    if score > best_value:
+                        best_value = score
+                        best_param = param
+                except:
+                    return None
     return best_param
 
 
