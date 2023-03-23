@@ -711,8 +711,8 @@ class Controller:
             frame_wait_buy = product_time if product_status == 0 else 0  # 生产所需时间，如果已有商品则为0
             if frame_wait_buy > self.MAX_WAIT:
                 continue
-            # frame_move_to_buy = self.get_dis_robot2workstand(
-            #     idx_robot, idx_workstand) * self.MOVE_SPEED
+            frame_move_to_buy = self.get_dis_robot2workstand(
+                idx_robot, idx_workstand) * self.MOVE_SPEED
             buy_weight = self.BUY_WEIGHT[workstand_type]
             # 需要这个产品的工作台
             for idx_worksand_to_sell in ITEMS_NEED[workstand_type]:
@@ -742,9 +742,9 @@ class Controller:
                         continue
                     else:
                         frame_wait_sell = sell_product_time
-                frame_move_to_buy, frame_move_to_sell= self.get_time_rww(idx_robot, idx_workstand, idx_worksand_to_sell)
-                # frame_move_to_sell = self.get_dis_workstand2workstand(
-                #     idx_workstand, idx_worksand_to_sell) * self.MOVE_SPEED
+                # frame_move_to_buy, frame_move_to_sell= self.get_time_rww(idx_robot, idx_workstand, idx_worksand_to_sell)
+                frame_move_to_sell = self.get_dis_workstand2workstand(
+                    idx_workstand, idx_worksand_to_sell) * self.MOVE_SPEED
                 frame_buy = max(frame_move_to_buy,
                                 frame_wait_buy)  # 购买时间
                 frame_sell = max(frame_move_to_sell,
