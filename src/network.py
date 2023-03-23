@@ -1,7 +1,6 @@
 # coding=utf-8
 import numpy as np
 import os
-import copy
 import json
 
 class Network:
@@ -12,7 +11,7 @@ class Network:
         (0.5, 1)
     ]
 
-    def __init__(self, input_size=3*58, hidden_size=50, output_size=4, learning_rate=0.1):
+    def __init__(self, input_size=3*54, hidden_size=50, output_size=4, learning_rate=0.1):
         self.input_size = input_size  # 输入大小
         self.hidden_size = hidden_size  # 隐藏层大小
         self.output_size = output_size  # 输出大小
@@ -96,16 +95,16 @@ class Network:
             # print(tmp)
             X_list.append(tmp[:])
         return np.array([X_list]), np.array(y_list)
-
-    def training(self,  epochs=1000, learning_rate=0.02):
-        # 加载数据集和目标输出
-        X_list, y_list = self.data_loader()
-        # 训练神经网络
-        for epoch in range(epochs):
-            for i in range(len(X_list)):
-                loss = self.train(X_list[i], y_list[i],
-                                  learning_rate=learning_rate)
-            print(F'epoch:{epoch}, loss:{loss}')
+    
+    def training(self,  epochs=1000, learning_rate=0.01):
+            # 加载数据集和目标输出
+            X_list, y_list = self.data_loader()
+            # 训练神经网络
+            for epoch in range(epochs):
+                for i in range(len(X_list)):
+                    loss = self.train(X_list[i], y_list[i],
+                                    learning_rate=learning_rate)
+                print(F'epoch:{epoch}, loss:{loss}')
 
     def save(self, weight_path='src/weight.py'):
         file = open(weight_path, 'w')
@@ -137,22 +136,7 @@ class Network:
         params = output_layer.tolist()[0]
         return [self.normalization(params[i], *self.upper_and_lower[i], False) for i in range(len(params))]
 
-
 if __name__ == '__main__':
     network = Network()
-    network.training(1000)
+    network.training(5000)
     network.save()
-    # X=[]
-    # file = open('maps/1.txt', 'r')
-    # for line in file.readlines():
-    #     for c in line:
-    #         if c == '.':
-    #             X.append(0)
-    #         elif c == 'A':
-    #             X.append(10)
-    #         elif c == '\n':
-    #             continue
-    #         else:
-    #             X.append(int(c))
-    # network.weight_loader()
-    # print(network.get_params(X))
