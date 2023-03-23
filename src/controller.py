@@ -698,6 +698,13 @@ class Controller:
             self._workstands.set_material_pro(
                 next_walkstand, material_pro - (1 << workstand_types))
 
+    def count_1(self, v): # 记录每个数中含有多少个1
+        num = 0
+        while v:
+            num += v&1
+            v >>= 1
+        return num
+
     def choise(self, frame_id: int, idx_robot: int) -> bool:
         # 进行一次决策
         max_radio = 0  # 记录最优性价比
@@ -754,7 +761,7 @@ class Controller:
                     continue
                 time_rate = self.get_time_rate(
                     frame_move_to_sell)  # 时间损耗
-                sell_weight = self.SELL_WEIGHT if sell_material else 1
+                sell_weight = self.SELL_WEIGHT**self.count_1(sell_material) # 已经占用的格子越多优先级越高
                 sell_debuff = self.SELL_DEBUFF if sell_type == 9 and workstand_type != 7 else 1
                 radio = (
                     ITEMS_SELL[workstand_type] * time_rate - ITEMS_BUY[
@@ -775,6 +782,7 @@ class Controller:
                 feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)
             return True
         return False
+
 
     def control(self, frame_id: int):
         self.cal_dis_robot2workstand()

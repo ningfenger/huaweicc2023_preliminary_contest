@@ -27,7 +27,6 @@ WORKSTAND_FULL = { # 记录每种工作台材料格慢的情况
     7: sum([1<<i for i in (4,5,6)])
 }
 
-
 class Map:
     def __init__(self):
         # 工作台信息 array
