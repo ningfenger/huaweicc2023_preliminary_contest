@@ -36,7 +36,9 @@ def find_best(map_num):
     return best_param
 
 
-def gen_datebase(map_range_start, map_range_end):
+def gen_datebase(map_range_start, map_range_end, data_dir='database/'):
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
     for map_id in range(map_range_start, map_range_end):
         bast_param = find_best(map_id)
         if not bast_param:
@@ -44,7 +46,7 @@ def gen_datebase(map_range_start, map_range_end):
         bast_param = map(str, bast_param)
         time_tuple = time.localtime(time.time())
         map_name = f'maps/{map_id}.txt'
-        file_name = f'database/{time_tuple[0]}-{time_tuple[1]}-{time_tuple[2]}-{time_tuple[3]}_{time_tuple[4]}_{time_tuple[5]}_map{map_id}.txt'
+        file_name = f'{data_dir}/{time_tuple[0]}-{time_tuple[1]}-{time_tuple[2]}-{time_tuple[3]}_{time_tuple[4]}_{time_tuple[5]}_map{map_id}.txt'
         data_file = open(file_name,'w')
         data_file.write(','.join(bast_param)+'\n')
         map_file = open(map_name, 'r')
