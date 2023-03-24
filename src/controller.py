@@ -62,7 +62,7 @@ class Controller:
     # 控制参数
     MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
     MAX_WAIT = 3 * 50  # 最大等待时间
-    SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
+    SELL_WEIGHT = 1.5  # 优先卖给格子被部分占用的
     SELL_DEBUFF = 0.8  # 非 7 卖给89的惩罚
     CONSERVATIVE = 1  # 保守程度 最后时刻要不要操作
     BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
@@ -675,8 +675,9 @@ class Controller:
         if buy:
             workstand_type = int(
                 self._workstands.get_workstand_status(target_walkstand)[0])
-            if not workstand_type in [1, 2, 3]:  # 123不锁
-                self._workstands.set_product_pro(target_walkstand, 1)
+            if workstand_type in [1, 2, 3]:  # 123不锁
+                return
+            self._workstands.set_product_pro(target_walkstand, 1)
         else:
             self._workstands.set_product_pro(target_walkstand, 0)
 
