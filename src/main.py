@@ -88,6 +88,8 @@ if __name__ == '__main__':
     network = Network()
     network.weight_loader()
     MOVE_SPEED, MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF = network.get_params(X)
+
+
     controller.set_control_parameters(MOVE_SPEED,  MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF)
     finish()
     while True:
@@ -100,6 +102,9 @@ if __name__ == '__main__':
 
         # logging.info(frame_id)
         print(frame_id)
-        controller.control(int(frame_id))
+        if len(map_obj) == 18:
+            controller.control(int(frame_id))
+        else:
+            controller.control2(int(frame_id))
 
         finish()
