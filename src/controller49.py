@@ -124,7 +124,7 @@ class Controller:
     # 控制参数
     MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
     MAX_WAIT = 3 * 50  # 最大等待时间
-    SELL_WEIGHT = 1.3  # 优先卖给格子被部分占用的
+    SELL_WEIGHT = 1.5  # 优先卖给格子被部分占用的
     SELL_DEBUFF = 0.8  # 非 7 卖给89的惩罚
     CONSERVATIVE = 1  # 保守程度 最后时刻要不要操作
     BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
@@ -280,18 +280,16 @@ class Controller:
                         feature_waiting_time_w, idx_workstand))
                     if waiting_time in [-1, 0]:
                         # 不在生产 或 阻塞
-                        self._sell_cell_dynamic[key_cell] = -1000000000  # 负无穷
+                        self._sell_cell_dynamic[key_cell] = -1000000  # 负无穷
                     else:
                         # 在生产中
-                        self._sell_cell_dynamic[key_cell] = -1000000000  # 负无穷
-                        # self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell] * 0.8
+                        self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell]
                 else:
                     # 此格子没有物品
                     if int(material):
                         # 邻居格子有物品 此格子无物品
                         self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell] * (
-                            1 + 0.2 * count_ones(int(material))) ** 2
-
+                            1 + 0.08 * count_ones(int(material))) ** 2
                     else:
                         # 都没有 不动
                         self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell]
@@ -312,7 +310,7 @@ class Controller:
                 if int(product_status):
                     # 产品格已有物品
                     self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand] * (
-                        1 - 0.5 * material_count) ** 2  # 负无穷
+                        1 - 0.08 * material_count) ** 2  # 负无穷
                 else:
                     # 产品格没有物品
 
@@ -381,8 +379,8 @@ class Controller:
                 idx_workstand)
             if int(material) & (1 << material_receive):
                 # 这个盒子已有物品
-                waiting_time = int(self._workstands._workstand[idx_workstand,
-                                                           feature_waiting_time_w])
+                waiting_time = self._workstands._workstand[idx_workstand,
+                                                           feature_waiting_time_w]
                 if waiting_time <= 0:
                     # -1 没在生产，不是冷却时间为-1
                     # 0 在阻塞，不是冷却时间为0
@@ -454,16 +452,14 @@ class Controller:
                 try_workstand)
 
             # 格子里有物品
-            try_flag = int(material) & (1 << material_carry) == 0
-            if try_flag and self._dis_cell2workstand[key_cell, target_workstand] < min_dis and self._receive_cell_unlock[key_cell]:
+            try_flag = int(material) & (1 << material_carry)
+            if not try_flag and self._dis_cell2workstand[key_cell, target_workstand] < min_dis:
                 min_dis = self._dis_cell2workstand[key_cell, target_workstand]
                 idx_new_cell = key_cell
 
         self._robots.set_status_item(
             feature_target_sell_r, idx_robot, idx_new_cell)
-        new_workstand, _ = self._workstands.get_id_workstand_of_cell(
-            idx_new_cell)
-        self._robots.set_status_item(feature_target_r, idx_robot, new_workstand)
+        self._robots.set_status_item(feature_target_r, idx_robot, idx_new_cell)
 
         self._receive_cell_unlock[idx_new_cell] = False
 
@@ -583,23 +579,6 @@ class Controller:
                         near_flag = -1
         return near_flag
 
-    def wait_other_buy(self, idx_robot, distance_r2w):
-        # 当自己准备买时 如果目标格子有物品且工作台有产出尚未取出 需变更目标坐标等待
-        flag = False
-        target_sell_cell = int(self._robots.get_status(
-            feature_target_sell_r, idx_robot))
-        target_workstand, _ = self._workstands.get_id_workstand_of_cell(
-            target_sell_cell)
-        target_workstand = int(target_workstand)
-        workstand_type, _, material, _ = map(
-            int, self._workstands.get_workstand_status(target_workstand))
-        material_type = int(self._robots.get_status(
-            feature_materials_r, idx_robot))
-        if (material & 1 << material_type) and self._workstands.get_status(feature_product_state_w, target_workstand) == 1 and distance_r2w < 4:
-            flag = True
-        return flag
-
-
     def move2loc_new(self, idx_robot):
         info_robot = self._robots.get_status(-1, idx_robot).tolist()
         _, _, _, _, _, vx_robot, vy_robot, theta_robot, x_robot, y_robot, _, target_workstand_robot, _, _, _, _, _ = info_robot
@@ -702,8 +681,6 @@ class Controller:
                 target_x -= offset
 
         ########################### 强制指定进场方向 ###########################
-
-
         distance_r2w = self._dis_robot2workstand[idx_robot, idx_target]
         # 前往目标工作台的方向
         target_theta = np.arctan2(target_y - y_robot, target_x - x_robot)
@@ -739,10 +716,7 @@ class Controller:
             if dist_robot > 3:
                 speed = (dist_robot - 3) / 3
             else:
-                if self._robots.get_status(feature_workstand_id_r, idx_robot) == -1:
-                    speed = 0
-                else:
-                    speed = -2
+                speed = 0
                 # delta_theta += math.pi / 4
             self._robots.forward(idx_robot, -1)
             self._robots.rotate(idx_robot, delta_theta * k_r)
@@ -756,9 +730,6 @@ class Controller:
 
             if abs(delta_theta) < ang_small:
                 # 面对目标方向
-
-
-
                 self._robots.rotate(
                     idx_robot, sign_pow(delta_theta, n_r) * k_r)
                 self._robots.forward(idx_robot, self.upper_speed(idx_robot, distance_r2w ** n_s * k_s))
@@ -1007,8 +978,8 @@ class Controller:
         if buy:
             workstand_type = int(
                 self._workstands.get_workstand_status(target_walkstand)[0])
-            # if workstand_type in [1, 2, 3]:  # 123不锁
-            #     return
+            if workstand_type in [1, 2, 3]:  # 123不锁
+                return
             self._workstands.set_product_pro(target_walkstand, 1)
         else:
             self._workstands.set_product_pro(target_walkstand, 0)

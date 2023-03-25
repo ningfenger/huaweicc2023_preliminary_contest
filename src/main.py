@@ -100,6 +100,9 @@ if __name__ == '__main__':
 
         # logging.info(frame_id)
         print(frame_id)
+        # if len(map_obj) == 18:
         controller.control(int(frame_id))
+        # else:
+            # controller.control2(int(frame_id))
 
         finish()
