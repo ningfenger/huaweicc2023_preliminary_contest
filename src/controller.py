@@ -16,9 +16,9 @@ ITEMS_NEED = [[] for _ in range(8)]  # 记录收购每个商品的工作台编�
 DIS = [5, 2, 1]
 VELO = [5, 2, 1]
 # 人工势场常熟
-ETA = 3000  # 调整斥力大小的常数
+ETA = 600  # 调整斥力大小的常数
 GAMMA = 10  # 调整吸引力大小的常数
-RADIUS = 3  # 定义斥力半径范围
+RADIUS = 6  # 定义斥力半径范围
 # 测试
 DEBUG = False
 time_record = []
@@ -57,15 +57,78 @@ def get_dx_dy_d(a, b):
     d = np.sqrt(np.power(dx, 2) + np.power(dy, 2))
     return dx, dy, d
 
+def will_collide(x1, y1, vx1, vy1, x2, y2, vx2, vy2, t_max, r = 0.53):
+    # 计算机器人之间的初始距离
+    dist = math.sqrt((x1 - x2)**2 + (y1 - y2)**2)
+    # 计算相对速度
+    rel_vx = vx1 - vx2
+    rel_vy = vy1 - vy2
+    # 如果机器人的相对速度为零，则它们永远不会相遇
+    if rel_vx == 0 and rel_vy == 0:
+        return (False, None, None, None, None)
+    # 计算参数方程
+    a = rel_vx**2 + rel_vy**2
+    b = 2 * ((x1 - x2) * rel_vx + (y1 - y2) * rel_vy)
+    c = (x1 - x2)**2 + (y1 - y2)**2 - 4 * r**2
+    delta = b**2 - 4 * a * c
+    # 如果delta小于零，则机器人之间不会相遇
+    if delta < 0:
+        return (False, None, None, None, None)
+    else:
+        t1 = (-b + math.sqrt(delta)) / (2 * a)
+        t2 = (-b - math.sqrt(delta)) / (2 * a)
+        t = min(t1, t2)
+        # 如果时间是负数或者超出了预测的时间范围，则机器人之间不会相遇
+        if t < 0 or t > t_max:
+            return (False, None, None, None, None)
+        # 计算碰撞点的位置
+        collision_x = (x1 + vx1 * t + x2 + vx2 * t) / 2
+        collision_y = (y1 + vy1 * t + y2 + vy2 * t) / 2
+        # 计算碰撞点距离各自的长度
+        distance1 = math.sqrt((collision_x - x1)**2 + (collision_y - y1)**2) - r
+        distance2 = math.sqrt((collision_x - x2)**2 + (collision_y - y2)**2) - r
+        return (True, collision_x, collision_y, distance1, distance2)
+
+
+
+def will_collide2(x_robot, y_robot, vx_robot, vy_robot, x_other, y_other, vx_other, vy_other, t):
+    # 计算机器人和另一个物体之间的相对速度
+    vx_rel = vx_robot - vx_other
+    vy_rel = vy_robot - vy_other
+
+    # 计算机器人和另一个物体之间的相对位置
+    x_rel = x_robot - x_other
+    y_rel = y_robot - y_other
+
+    # 如果两个物体在x和y方向上的相对速度和相对位置都相反，则它们会碰撞
+    if vx_rel * x_rel + vy_rel * y_rel < 0:
+        # 计算碰撞时间
+        t_col = -(vx_rel * x_rel + vy_rel * y_rel) / (vx_rel ** 2 + vy_rel ** 2)
+
+        # 计算碰撞点的坐标
+        x_col = x_robot + vx_robot * t_col
+        y_col = y_robot + vy_robot * t_col
+
+        # 计算碰撞点距离各自的长度
+        dist_robot = ((x_col - x_robot) ** 2 + (y_col - y_robot) ** 2) ** 0.5
+        dist_other = ((x_col - x_other) ** 2 + (y_col - y_other) ** 2) ** 0.5
+
+        # 判断碰撞时间是否在t时间内
+        if t_col < t:
+            return True, x_col, y_col, dist_robot, dist_other
+
+    return False, None, None, None, None
+
 
 class Controller:
     # 控制参数
     MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
     MAX_WAIT = 3 * 50  # 最大等待时间
-    SELL_WEIGHT = 1.2  # 优先卖给格子被部分占用的
+    SELL_WEIGHT = 1.3  # 优先卖给格子被部分占用的
     SELL_DEBUFF = 0.8  # 非 7 卖给89的惩罚
     CONSERVATIVE = 1  # 保守程度 最后时刻要不要操作
     BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
+    # BUY_WEIGHT = [1.5, 1, 1, 1, 1, 1, 1, 1]  # 购买优先级，优先购买高级商品
 
     def __init__(self, robots: RobotGroup, workstands: Map):
         self._robots = robots
@@ -217,16 +280,18 @@ class Controller:
                         feature_waiting_time_w, idx_workstand))
                     if waiting_time in [-1, 0]:
                         # 不在生产 或 阻塞
-                        self._sell_cell_dynamic[key_cell] = -1000000  # 负无穷
+                        self._sell_cell_dynamic[key_cell] = -1000000000  # 负无穷
                     else:
                         # 在生产中
-                        self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell]
+                        self._sell_cell_dynamic[key_cell] = -1000000000  # 负无穷
+                        # self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell] * 0.8
                 else:
                     # 此格子没有物品
                     if int(material):
                         # 邻居格子有物品 此格子无物品
                         self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell] * (
-                            1 + 0.08 * count_ones(int(material))) ** 2
+                            1 + 0.2 * count_ones(int(material))) ** 2
+
                     else:
                         # 都没有 不动
                         self._sell_cell_dynamic[key_cell] = self._sell_cell_ori[key_cell]
@@ -247,7 +312,7 @@ class Controller:
                 if int(product_status):
                     # 产品格已有物品
                     self._buy_workstand_dynamic[key_workstand] = self._buy_workstand_ori[key_workstand] * (
-                        1 - 0.08 * material_count) ** 2  # 负无穷
+                        1 - 0.5 * material_count) ** 2  # 负无穷
                 else:
                     # 产品格没有物品
 
@@ -316,8 +381,8 @@ class Controller:
                 idx_workstand)
             if int(material) & (1 << material_receive):
                 # 这个盒子已有物品
-                waiting_time = self._workstands._workstand[idx_workstand,
-                                                           feature_waiting_time_w]
+                waiting_time = int(self._workstands._workstand[idx_workstand,
+                                                           feature_waiting_time_w])
                 if waiting_time <= 0:
                     # -1 没在生产，不是冷却时间为-1
                     # 0 在阻塞，不是冷却时间为0
@@ -360,7 +425,9 @@ class Controller:
             self._robots.set_status_item(feature_target_buy_r, r_id, w_id)
             self._robots.set_status_item(feature_target_sell_r, r_id, c_id)
             self._robot_unlock[r_id] = False
-            self._product_workstand_unlock[w_id] = False
+
+            if not int(self._workstands.get_status(feature_num_type_w, w_id)) in [1,2,3]:
+                self._product_workstand_unlock[w_id] = False
             self._receive_cell_unlock[c_id] = False
             return True
         else:
@@ -387,14 +454,16 @@ class Controller:
                 try_workstand)
 
             # 格子里有物品
-            try_flag = int(material) & (1 << material_carry)
-            if not try_flag and self._dis_cell2workstand[key_cell, target_workstand] < min_dis:
+            try_flag = int(material) & (1 << material_carry) == 0
+            if try_flag and self._dis_cell2workstand[key_cell, target_workstand] < min_dis and self._receive_cell_unlock[key_cell]:
                 min_dis = self._dis_cell2workstand[key_cell, target_workstand]
                 idx_new_cell = key_cell
 
         self._robots.set_status_item(
             feature_target_sell_r, idx_robot, idx_new_cell)
-        self._robots.set_status_item(feature_target_r, idx_robot, idx_new_cell)
+        new_workstand, _ = self._workstands.get_id_workstand_of_cell(
+            idx_new_cell)
+        self._robots.set_status_item(feature_target_r, idx_robot, new_workstand)
 
         self._receive_cell_unlock[idx_new_cell] = False
 
@@ -452,6 +521,298 @@ class Controller:
 
         return compute_time_to_arrive(dis_r2w1, theta_r2w1), compute_time_to_arrive(theta_w12w2, theta_r2w1)
 
+
+    def get_other_col_info(self, idx_robot, idx_other):
+        # 计算机器人之间的距离
+        distance_robot = self.get_dis_robot2robot(idx_robot, idx_other)
+
+        # 自己指向其他的方向余弦
+        dx_robot = self._delta_x_r2r[idx_robot,
+                                     idx_other] / distance_robot
+        # 自己指向其他的方向余弦
+        dy_robot = self._delta_y_r2r[idx_robot,
+                                     idx_other] / distance_robot
+
+        info_robot = self._robots.get_status(-1, idx_robot)
+
+        info_other = self._robots.get_status(-1, idx_other)
+
+        _, _, _, _, _, vx_robot, vy_robot, theta_robot, x_robot, y_robot, _, target_workstand_robot, _, _, _, _, _ = info_robot
+        _, _, _, _, _, vx_other, vy_other, theta_other, x_other, y_other, _, target_workstand_other, _, _, _, _, _ = info_other
+
+        # 判断是否路上正向对撞
+        col_flag, x_col, y_col, dist_robot, dist_other = will_collide(x_robot, y_robot, vx_robot, vy_robot, x_other, y_other, vx_other, vy_other, 1.5)
+        # 判断是否路上侧向撞上其他机器人
+        # 判断是否同时到终点僵持
+        return col_flag, x_col, y_col, dist_robot, dist_other
+
+    def upper_speed(self, idx_robot, speed):
+        t = 0.3
+        info_robot = self._robots.get_status(-1, idx_robot).tolist()
+        _, _, _, _, _, vx_robot, vy_robot, theta_robot, x_robot, y_robot, _, target_workstand_robot, _, _, _, _, _ = info_robot
+        if 0 < x_robot + t * vx_robot < 50 and 0 < y_robot + t * vy_robot < 50:
+            return speed
+        else:
+            return min(speed / 6, 0.3)
+
+    def get_nearest(self, idx_robot):
+        # 检测是否僵持
+        near_flag = None
+        theta_robot = self._robots.get_status(feature_theta_r, idx_robot)
+        dircos_robot = np.array([math.cos(theta_robot), math.sin(theta_robot)])
+        for idx_other in range(4):
+            if not idx_other == idx_robot:
+                # 计算机器人之间的距离
+                distance_robot = self.get_dis_robot2robot(idx_robot, idx_other)
+
+                # 自己指向其他的方向余弦
+                dx_robot = self._delta_x_r2r[idx_robot,
+                                             idx_other] / distance_robot
+                # 自己指向其他的方向余弦
+                dy_robot = self._delta_y_r2r[idx_robot,
+                                             idx_other] / distance_robot
+
+                theta_robot2other = np.arctan2(dy_robot, dx_robot)
+
+                d_theta = theta_robot - theta_robot2other
+                d_theta = (d_theta + math.pi) % (2 * math.pi) - math.pi
+                if distance_robot < 1.3 and idx_robot < idx_other and abs(d_theta) < math.pi / 2:
+                    if d_theta > 0:
+                        near_flag = 1
+                    else:
+                        near_flag = -1
+        return near_flag
+
+    def wait_other_buy(self, idx_robot, distance_r2w):
+        # 当自己准备买时 如果目标格子有物品且工作台有产出尚未取出 需变更目标坐标等待
+        flag = False
+        target_sell_cell = int(self._robots.get_status(
+            feature_target_sell_r, idx_robot))
+        target_workstand, _ = self._workstands.get_id_workstand_of_cell(
+            target_sell_cell)
+        target_workstand = int(target_workstand)
+        workstand_type, _, material, _ = map(
+            int, self._workstands.get_workstand_status(target_workstand))
+        material_type = int(self._robots.get_status(
+            feature_materials_r, idx_robot))
+        if (material & 1 << material_type) and self._workstands.get_status(feature_product_state_w, target_workstand) == 1 and distance_r2w < 4:
+            flag = True
+        return flag
+
+
+    def move2loc_new(self, idx_robot):
+        info_robot = self._robots.get_status(-1, idx_robot).tolist()
+        _, _, _, _, _, vx_robot, vy_robot, theta_robot, x_robot, y_robot, _, target_workstand_robot, _, _, _, _, _ = info_robot
+        idx_target = int(self._robots.get_status(feature_target_r, idx_robot))
+        target_x = self._workstands.get_status(feature_x_w, idx_target)
+        target_y = self._workstands.get_status(feature_y_w, idx_target)
+
+        edge_flag = (x_robot < 1 or x_robot > 49) and (y_robot < 1 or y_robot > 49)
+        band_width = 0.9
+        offset = 8
+        # ########################### 就近 ###########################
+        # # 右下角前期虚像
+        # if target_x > 49 and target_y < 1:
+        #     # 角落
+        #     if y_robot > 50 - x_robot:
+        #         # ↘的上三角区域
+        #         if x_robot < 50 - band_width:
+        #             # 右边带外
+        #             target_y += offset
+        #     else:
+        #         # ↘的下三角区域
+        #         if y_robot > band_width:
+        #             # 下边带外
+        #             target_x -= offset
+        #
+        # # 左上角前期虚像
+        # if target_x < 1 and target_y > 49:
+        #     # 角落
+        #     if y_robot > 50 - x_robot:
+        #         # ↖的上三角区域
+        #         if y_robot < 50 - band_width:
+        #             # 上边带外
+        #             target_x += offset
+        #     else:
+        #         # ↖的下三角区域
+        #         if x_robot > band_width:
+        #             # 左边带外
+        #             target_y -= offset
+        #
+        # # 左下角前期虚像
+        # if target_x < 1 and target_y < 1:
+        #     # 角落
+        #     if y_robot > x_robot:
+        #         # ↙的上三角区域
+        #         if x_robot > band_width:
+        #             # 左边带外
+        #             target_y += offset
+        #     else:
+        #         # ↙的下三角区域
+        #         if y_robot > band_width:
+        #             # 下边带外
+        #             target_x += offset
+        #
+        # # 右上角前期虚像
+        # if target_x > 49 and target_y > 49:
+        #     # 角落
+        #     if y_robot > x_robot:
+        #         # ↗的上三角区域
+        #         if y_robot < 50 - band_width:
+        #             # 上边带外
+        #             target_x -= offset
+        #     else:
+        #         # ↗的下三角区域
+        #         if x_robot < 50 - band_width:
+        #             # 右边带外
+        #             target_y -= offset
+        # ########################### 就近 ###########################
+        ########################### 强制指定进场方向 ###########################
+        # 右下角前期虚像
+        if target_x > 49 and target_y < 1:
+            # 角落
+            # ↘的上三角区域
+            if y_robot > band_width:
+                # 下边带外
+                target_x -= offset
+
+
+        # 左上角前期虚像
+        if target_x < 1 and target_y > 49:
+            # 角落
+            # ↖的下三角区域
+            if x_robot > band_width:
+                # 左边带外
+                target_y -= offset
+
+        # 左下角前期虚像
+        if target_x < 1 and target_y < 1:
+            # 角落
+            # ↙的下三角区域
+            if y_robot > band_width:
+                # 下边带外
+                target_x += offset
+
+        # 右上角前期虚像
+        if target_x > 49 and target_y > 49:
+            # 角落
+            # ↗的上三角区域
+            if y_robot < 50 - band_width:
+                # 上边带外
+                target_x -= offset
+
+        ########################### 强制指定进场方向 ###########################
+
+
+        distance_r2w = self._dis_robot2workstand[idx_robot, idx_target]
+        # 前往目标工作台的方向
+        target_theta = np.arctan2(target_y - y_robot, target_x - x_robot)
+        delta_theta = target_theta - theta_robot
+        delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
+
+        col_flag = False
+        for idx_other in range(4):
+            if not idx_other == idx_robot:
+                col_flag, x_col, y_col, dist_robot, dist_other = self.get_other_col_info(idx_robot, idx_other)
+                if col_flag:
+                    break
+        k_r = 10
+        n_r = 1
+        k_s = 10
+        n_s = 1.5
+        d_far = 6
+        d_near = 4
+        d_daoche = 3
+
+        ang_large = math.pi * 0.9
+        ang_small = math.pi * 0.1
+        near_flag = self.get_nearest(idx_robot)
+        if near_flag is not None:
+            # 僵持不下
+            # 接触僵持 不避免僵持
+            self._robots.forward(idx_robot, -2)
+            delta_theta += near_flag * math.pi / 2
+            delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
+            self._robots.rotate(idx_robot, delta_theta * k_r)
+        elif col_flag and dist_robot > dist_other:
+            # raise Exception('1')
+            if dist_robot > 3:
+                speed = (dist_robot - 3) / 3
+            else:
+                if self._robots.get_status(feature_workstand_id_r, idx_robot) == -1:
+                    speed = 0
+                else:
+                    speed = -2
+                # delta_theta += math.pi / 4
+            self._robots.forward(idx_robot, -1)
+            self._robots.rotate(idx_robot, delta_theta * k_r)
+        elif edge_flag and abs(delta_theta) > ang_small:
+            # 原地转（角落容易碰撞）
+            self._robots.rotate(
+                idx_robot, sign_pow(delta_theta, n_r) * k_r)
+            self._robots.forward(idx_robot, 0)
+        else:
+
+
+            if abs(delta_theta) < ang_small:
+                # 面对目标方向
+
+
+
+                self._robots.rotate(
+                    idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                self._robots.forward(idx_robot, self.upper_speed(idx_robot, distance_r2w ** n_s * k_s))
+            elif abs(delta_theta) < ang_large:
+                if distance_r2w > d_far:
+                    # 距离远且不面对目标方向
+
+                    # 边开边转（有希望开近的时候面对目标）
+                    self._robots.rotate(
+                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, self.upper_speed(idx_robot, distance_r2w ** n_s * k_s))
+                elif distance_r2w > d_near:
+                    # 距离适中且不面对目标方向
+
+                    # 低速前进地转（防止凑近之后绕圈）
+                    self._robots.rotate(
+                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, self.upper_speed(idx_robot, 2))
+                else:
+                    # 距离近且不面对目标方向
+
+                    # 原地转（防止凑近之后绕圈）
+                    self._robots.rotate(
+                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, 0)
+            else:
+                if distance_r2w > d_far:
+                    # 距离远且背对目标方向
+                    # 倒车转向
+                    self._robots.rotate(
+                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, -2)
+                elif distance_r2w > d_near:
+                    # 距离适中且背对目标方向
+                    # 倒车转向
+                    self._robots.rotate(
+                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, -2)
+                elif distance_r2w > d_daoche:
+                    # 距离较近且背对目标方向
+                    # 倒车转向
+                    self._robots.rotate(
+                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, -2)
+                else:
+                    # 倒车距离且背对目标方向 √
+
+                    # 倒车
+                    delta_theta += math.pi
+                    self._robots.rotate(
+                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
+                    self._robots.forward(idx_robot, -distance_r2w ** n_s * k_s)
+
+
     def calculate_potential_field(self, idx_robot, idx_workstand):
         # 计算位于current_pos处的机器人的势能场
         near_flag = -1
@@ -471,7 +832,9 @@ class Controller:
                 # 自己指向其他的方向余弦
                 dy_robot = self._delta_y_r2r[idx_robot,
                                              idx_other] / distance_robot
-
+                theta2other = np.arctan2(dy_robot, dx_robot)
+                theta_shun = np.arctan2(dx_robot, -dy_robot)  # (-y, x)
+                theta_ni = np.arctan2(-dx_robot, dy_robot)  # (y, -x)
                 theta_other = self._robots.get_status(
                     feature_theta_r, idx_other)
                 theta_robot = self._robots.get_status(
@@ -487,11 +850,13 @@ class Controller:
                     [math.cos(theta_robot), math.sin(theta_robot)])
 
                 dircos_robot2other = np.array([dx_robot, dy_robot])
+                
+                # 头朝向方向 与 指向其他机器人方向 的 夹角
                 ang_robot = math.acos(
-                    np.dot(dircos_robot, np.array([-dx_robot, -dy_robot])))
+                    np.dot(dircos_robot, np.array([dx_robot, dy_robot])))
 
                 ang_other = math.acos(
-                    np.dot(dircos_other, np.array([dx_robot, dy_robot])))
+                    np.dot(dircos_other, np.array([-dx_robot, -dy_robot])))
 
                 v_robot = math.sqrt(self._robots.get_status(feature_line_velo_x_r, idx_robot)
                                     ** 2 + self._robots.get_status(feature_line_velo_y_r, idx_robot) ** 2)
@@ -504,47 +869,14 @@ class Controller:
                 if distance_robot < 2 and idx_robot < idx_other and math.acos(np.dot(dircos_robot2other, dircos_robot)) < math.pi / 4:
                     near_flag = idx_other
 
-                # if self._robots.get_status(feature_materials_r, idx_robot) < self._robots.get_status(feature_materials_r,
-                #                                                                                    idx_other):
-                #     m_flag = True
-                # else:
-                #     if idx_robot > idx_other:
-                #         m_flag = True
-                #     else:
-                #         m_flag = False
-                # # 如果机器人之间的距离小于一定半径范围，则计算斥力
-                # if distance_robot < RADIUS and m_flag: # and (ang_robot < math.pi * 0.3 or ang_other < math.pi * 0.3):
-                #     repulsive_force = 0.5 * idx_robot * ETA * \
-                #         ((1.0 / distance_robot) - (1.0 / RADIUS)) ** 2
-                #     repulsive_field[0] -= repulsive_force * dx_robot
-                #     repulsive_field[1] -= repulsive_force * dy_robot
-
                 # # 如果机器人之间的距离小于一定半径范围，则计算斥力
                 # and (ang_robot < math.pi * 0.3 or ang_other < math.pi * 0.3):
-                if distance_robot < RADIUS and m_robot <= m_other and idx_robot < idx_other:
+                if distance_robot < RADIUS and ang_robot < math.pi / 4:  # and m_robot <= m_other and idx_robot < idx_other:
                     repulsive_force = 0.5 * idx_robot * ETA * \
                         ((1.0 / distance_robot) - (1.0 / RADIUS)) ** 2
-                    repulsive_field[0] -= repulsive_force * dx_robot
-                    repulsive_field[1] -= repulsive_force * dy_robot
 
-                # m_flag = False
-                # if m_robot < m_other:
-                #     m_flag = True
-                # elif m_robot == m_other:
-                #     if v_robot < v_other:
-                #         m_flag = True
-                #     else:
-                #         if idx_robot < idx_other:
-                #             m_flag = True
-                #
-                #
-                #
-                # # # 如果机器人之间的距离小于一定半径范围，则计算斥力
-                # if distance_robot < RADIUS and m_flag:  # and (ang_robot < math.pi * 0.3 or ang_other < math.pi * 0.3):
-                #     repulsive_force = 0.5 * idx_robot * ETA * \
-                #                       ((1.0 / distance_robot) - (1.0 / RADIUS)) ** 2
-                #     repulsive_field[0] -= repulsive_force * dx_robot
-                #     repulsive_field[1] -= repulsive_force * dy_robot
+                    repulsive_field[0] += repulsive_force * dy_robot
+                    repulsive_field[1] -= repulsive_force * dx_robot
 
         # 计算机器人到目标点的吸引力
         distance_r2w = self.get_dis_robot2workstand(idx_robot, idx_workstand)
@@ -562,7 +894,7 @@ class Controller:
         desired_angle = np.arctan2(total_field[1], total_field[0])
         return desired_angle, distance_r2w, near_flag
 
-    def move2loc_new(self, idx_robot):
+    def move2loc_new_bck(self, idx_robot):
         # 输入控制机器人编号 目标工作台编号 期望速度
         # 结合人工势场计算速度
         idx_target = self._robots.get_status(feature_target_r, idx_robot)
@@ -583,9 +915,9 @@ class Controller:
         n_s = 1.5
 
         # self._robots.rotate(idx_robot, delta_theta * k_r)
-        if not near_flag == -1:
+        if not near_flag == -1 and abs(delta_theta) < math.pi / 3:  #False:  #
             # 应该避让时
-            speed = -2
+            speed = -1
             self._robots.forward(idx_robot, speed)
             # delta_theta += 0.7
             self._robots.rotate(idx_robot, delta_theta * k_r)
@@ -675,8 +1007,9 @@ class Controller:
         if buy:
             workstand_type = int(
                 self._workstands.get_workstand_status(target_walkstand)[0])
-            if not workstand_type in [1, 2, 3]:  # 123不锁
-                self._workstands.set_product_pro(target_walkstand, 1)
+            # if workstand_type in [1, 2, 3]:  # 123不锁
+            #     return
+            self._workstands.set_product_pro(target_walkstand, 1)
         else:
             self._workstands.set_product_pro(target_walkstand, 0)
 
@@ -697,6 +1030,13 @@ class Controller:
         else:
             self._workstands.set_material_pro(
                 next_walkstand, material_pro - (1 << workstand_types))
+
+    def count_1(self, v):  # 记录每个数中含有多少个1
+        num = 0
+        while v:
+            num += v & 1
+            v >>= 1
+        return num
 
     def choise(self, frame_id: int, idx_robot: int) -> bool:
         # 进行一次决策
@@ -754,7 +1094,7 @@ class Controller:
                     continue
                 time_rate = self.get_time_rate(
                     frame_move_to_sell)  # 时间损耗
-                sell_weight = self.SELL_WEIGHT if sell_material else 1
+                sell_weight = self.SELL_WEIGHT**self.count_1(sell_material) # 已经占用的格子越多优先级越高
                 sell_debuff = self.SELL_DEBUFF if sell_type == 9 and workstand_type != 7 else 1
                 radio = (
                     ITEMS_SELL[workstand_type] * time_rate - ITEMS_BUY[
@@ -775,6 +1115,7 @@ class Controller:
                 feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)
             return True
         return False
+
 
     def control(self, frame_id: int):
         self.cal_dis_robot2workstand()
@@ -946,8 +1287,8 @@ class Controller:
                 product_status = int(self._workstands.get_status(
                     feature_product_state_w, target_workstand))
                 # 判定是否进入交互范围
-                if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(feature_target_r, idx_robot) and product_status == 1:
-
+                if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
+                        feature_target_r, idx_robot) and product_status == 1:
                     print("buy", idx_robot)
 
                     self._robots.set_status_item(
@@ -1075,5 +1416,5 @@ class Controller:
                         # 变更买家，切换为 【卖出途中】
                         self._robots.set_status_item(
                             feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)
-                        raise Exception('Sell Many times')
+                        # raise Exception('Sell Many times')
                 continue

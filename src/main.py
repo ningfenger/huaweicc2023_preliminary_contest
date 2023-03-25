@@ -18,7 +18,7 @@ parser = argparse.ArgumentParser(description='华为软件精英挑战赛2023 �
 parser.add_argument('--move_speed', default=1 / 3 *
                     50,  type=float, help='估算移动速度')
 parser.add_argument('--max_wait', default=2*50, type=float, help='最大等待帧数')
-parser.add_argument('--sell_weight', default=1.2, type=float, help='优先生产权重')
+parser.add_argument('--sell_weight', default=1.4, type=float, help='优先生产权重')
 parser.add_argument('--sell_debuff', default=0.6, type=float, help='优先生产权重')
 parser.add_argument('--train', action="store_true",help='是否是训练模式')
 
@@ -100,6 +100,7 @@ if __name__ == '__main__':
     if args.train:
         controller.set_control_parameters(args.move_speed,  int(args.max_wait), args.sell_weight, args.sell_debuff)
     else:
+        # pass
         MOVE_SPEED, MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF = network.get_params(X)
         controller.set_control_parameters(MOVE_SPEED,  MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF)
     finish()

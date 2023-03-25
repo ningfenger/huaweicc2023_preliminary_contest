@@ -68,7 +68,12 @@ class RobotGroup:
         if idx_robot == -1:
             return copy.deepcopy(self.group_info[:, feature_id])
         else:
-            return copy.deepcopy(self.group_info[idx_robot, feature_id])
+
+            if feature_id == -1:
+                return copy.deepcopy(self.group_info[idx_robot, :])
+            else:
+                return copy.deepcopy(self.group_info[idx_robot, feature_id])
+
 
     # 自定义变量【10-14】
     def set_status_item(self, feature_id, idx_robot, value):
