@@ -22,7 +22,7 @@ def find_best(map_num):
                     MAX_WAIT = max_wait * 50
                     SELL_WEIGHT = 1+sell_weight/10
                     SELL_DEBUFF = sell_debuff/10
-                    cmd = f'{Robot} "python src/main.py --train --move_speed {MOVE_SPEED} --max_wait {MAX_WAIT} --sell_weight {SELL_WEIGHT} --sell_debuff {SELL_DEBUFF}" -f -m maps/{map_num}.txt'
+                    cmd = f'{Robot} "python src/main.py --train --move_speed {MOVE_SPEED} --max_wait {MAX_WAIT} --sell_weight {SELL_WEIGHT} --sell_debuff {SELL_DEBUFF}"  -r  replay/{map_num}-%Y-%m-%d.%H.%M.%S.rep -f -d -m maps/{map_num}.txt'
                     try:
                         res = os.popen(cmd).readlines()[-1]
                         score = eval(res)['score']
