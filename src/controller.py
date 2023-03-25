@@ -675,8 +675,8 @@ class Controller:
         if buy:
             workstand_type = int(
                 self._workstands.get_workstand_status(target_walkstand)[0])
-            if workstand_type in [1, 2, 3]:  # 123不锁
-                return
+            # if workstand_type in [1, 2, 3]:  # 123不锁
+            #     return
             self._workstands.set_product_pro(target_walkstand, 1)
         else:
             self._workstands.set_product_pro(target_walkstand, 0)
