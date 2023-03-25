@@ -122,11 +122,11 @@ def will_collide2(x_robot, y_robot, vx_robot, vy_robot, x_other, y_other, vx_oth
 
 class Controller:
     # 控制参数
-    MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
+    MOVE_SPEED = 1 / 5 * 50  # 估算移动时间
     MAX_WAIT = 3 * 50  # 最大等待时间
-    SELL_WEIGHT = 1.3  # 优先卖给格子被部分占用的
+    SELL_WEIGHT = 1.4  # 优先卖给格子被部分占用的
     SELL_DEBUFF = 0.8  # 非 7 卖给89的惩罚
-    CONSERVATIVE = 1  # 保守程度 最后时刻要不要操作
+    CONSERVATIVE = 1+1/MOVE_SPEED*5  # 保守程度 最后时刻要不要操作
     BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
     # BUY_WEIGHT = [1.5, 1, 1, 1, 1, 1, 1, 1]  # 购买优先级，优先购买高级商品
 
@@ -1074,7 +1074,7 @@ class Controller:
                 # 2023-3-22 优化如果格子已满可以考虑
                 frame_wait_sell = 0
                 if WORKSTAND_OUT[sell_type] and 1 << workstand_type & sell_material:
-                    # continue
+                    continue
                     # 阻塞或者材料格没满
                     if sell_product_time in [-1, 0] or sell_material != WORKSTAND_FULL[sell_type]:
                         continue

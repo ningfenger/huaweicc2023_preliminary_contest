@@ -2,7 +2,6 @@
 from workstand import Map
 from robot import RobotGroup
 from controller import Controller
-from network import Network
 import sys
 import os
 try:
@@ -95,14 +94,15 @@ if __name__ == '__main__':
     # time.sleep(20)
     # 只需计算一次
     controller.cal_dis_workstand2workstand()
-    network = Network()
-    network.weight_loader()
     if args.train:
         controller.set_control_parameters(args.move_speed,  int(args.max_wait), args.sell_weight, args.sell_debuff)
     else:
-        # pass
-        MOVE_SPEED, MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF = network.get_params(X)
-        controller.set_control_parameters(MOVE_SPEED,  MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF)
+        pass
+        # from network import Network
+        # network = Network()
+        # network.weight_loader()
+        # MOVE_SPEED, MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF = network.get_params(X)
+        # controller.set_control_parameters(MOVE_SPEED,  MAX_WAIT, SELL_WEIGHT, SELL_DEBUFF)
     finish()
     while True:
         try:

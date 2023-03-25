@@ -96,7 +96,7 @@ class Network:
             X_list.append(tmp[:])
         return np.array([X_list]), np.array(y_list)
     
-    def training(self,  epochs=1000, learning_rate=0.01):
+    def training(self,  epochs=1000, learning_rate=0.02):
             # 加载数据集和目标输出
             X_list, y_list = self.data_loader()
             # 训练神经网络
@@ -138,5 +138,5 @@ class Network:
 
 if __name__ == '__main__':
     network = Network()
-    network.training(5000)
+    network.training(2000,0.01)
     network.save()
