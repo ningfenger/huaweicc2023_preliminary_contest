@@ -10,10 +10,13 @@ if platform == 'linux':
     Robot = './Robot'
 
 # 暴力找到最优解，获得一个数据集
-def find_best(map_num):
+def find_best(map_num, log_dir='train_log'):
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
     best_value = 0
     best_param = []
     print(map_num)
+    log_file=open(os.path.join(log_dir,f'{map_num}.csv'), 'w')
     for move_speed in range(2,6):
         for max_wait in range(2,8):
             for sell_weight in range(6):
@@ -31,8 +34,12 @@ def find_best(map_num):
                         if score > best_value:
                             best_value = score
                             best_param = param
+                        log_file.write(','.join(map(str, param)))
+                        log_file.write(f',{score}\n')
                     except:
+                        log_file.close()
                         return None
+    log_file.close()
     return best_param
 
 

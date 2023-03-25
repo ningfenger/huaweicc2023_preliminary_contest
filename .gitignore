@@ -61,6 +61,8 @@ cover/
 *.mo
 *.pot
 
+train_log/
+
 # Django stuff:
 *.log
 local_settings.py
