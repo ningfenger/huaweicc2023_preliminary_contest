@@ -5,6 +5,7 @@ import numpy as np
 import copy
 import math
 import logging
+from tools import *
 
 # 环境常量
 MATCH_FRAME = 3 * 60 * 50  # 总帧数
@@ -28,105 +29,13 @@ robot_theta = [0] * 4
 robot_arrive = [False] * 4
 
 
-def sign_pow(num_in, n):
-    if num_in < 0:
-        return -abs(num_in) ** n
-    else:
-        return abs(num_in) ** n
-
-
-def compute_time_to_arrive(dis, theta):
-    return 7.81833903 * abs(dis) + abs(theta) * 19.57800632
-
-
-def count_ones(n):
-    # 初始化计数器
-    n = int(n)
-    count = 0
-    # 循环计算二进制位中数字1的数量
-    while n > 0:
-        count += n & 1
-        n >>= 1
-    # 返回结果
-    return count
-
-
-def get_dx_dy_d(a, b):
-    dx = b[:, 0].reshape(1, -1) - a[:, 0].reshape(-1, 1)
-    dy = b[:, 1].reshape(1, -1) - a[:, 1].reshape(-1, 1)
-    d = np.sqrt(np.power(dx, 2) + np.power(dy, 2))
-    return dx, dy, d
-
-def will_collide(x1, y1, vx1, vy1, x2, y2, vx2, vy2, t_max, r = 0.53):
-    # 计算机器人之间的初始距离
-    dist = math.sqrt((x1 - x2)**2 + (y1 - y2)**2)
-    # 计算相对速度
-    rel_vx = vx1 - vx2
-    rel_vy = vy1 - vy2
-    # 如果机器人的相对速度为零，则它们永远不会相遇
-    if rel_vx == 0 and rel_vy == 0:
-        return (False, None, None, None, None)
-    # 计算参数方程
-    a = rel_vx**2 + rel_vy**2
-    b = 2 * ((x1 - x2) * rel_vx + (y1 - y2) * rel_vy)
-    c = (x1 - x2)**2 + (y1 - y2)**2 - 4 * r**2
-    delta = b**2 - 4 * a * c
-    # 如果delta小于零，则机器人之间不会相遇
-    if delta < 0:
-        return (False, None, None, None, None)
-    else:
-        t1 = (-b + math.sqrt(delta)) / (2 * a)
-        t2 = (-b - math.sqrt(delta)) / (2 * a)
-        t = min(t1, t2)
-        # 如果时间是负数或者超出了预测的时间范围，则机器人之间不会相遇
-        if t < 0 or t > t_max:
-            return (False, None, None, None, None)
-        # 计算碰撞点的位置
-        collision_x = (x1 + vx1 * t + x2 + vx2 * t) / 2
-        collision_y = (y1 + vy1 * t + y2 + vy2 * t) / 2
-        # 计算碰撞点距离各自的长度
-        distance1 = math.sqrt((collision_x - x1)**2 + (collision_y - y1)**2) - r
-        distance2 = math.sqrt((collision_x - x2)**2 + (collision_y - y2)**2) - r
-        return (True, collision_x, collision_y, distance1, distance2)
-
-
-
-def will_collide2(x_robot, y_robot, vx_robot, vy_robot, x_other, y_other, vx_other, vy_other, t):
-    # 计算机器人和另一个物体之间的相对速度
-    vx_rel = vx_robot - vx_other
-    vy_rel = vy_robot - vy_other
-
-    # 计算机器人和另一个物体之间的相对位置
-    x_rel = x_robot - x_other
-    y_rel = y_robot - y_other
-
-    # 如果两个物体在x和y方向上的相对速度和相对位置都相反，则它们会碰撞
-    if vx_rel * x_rel + vy_rel * y_rel < 0:
-        # 计算碰撞时间
-        t_col = -(vx_rel * x_rel + vy_rel * y_rel) / (vx_rel ** 2 + vy_rel ** 2)
-
-        # 计算碰撞点的坐标
-        x_col = x_robot + vx_robot * t_col
-        y_col = y_robot + vy_robot * t_col
-
-        # 计算碰撞点距离各自的长度
-        dist_robot = ((x_col - x_robot) ** 2 + (y_col - y_robot) ** 2) ** 0.5
-        dist_other = ((x_col - x_other) ** 2 + (y_col - y_other) ** 2) ** 0.5
-
-        # 判断碰撞时间是否在t时间内
-        if t_col < t:
-            return True, x_col, y_col, dist_robot, dist_other
-
-    return False, None, None, None, None
-
-
 class Controller:
     # 控制参数
     MOVE_SPEED = 1 / 4 * 50  # 估算移动时间
     MAX_WAIT = 3 * 50  # 最大等待时间
-    SELL_WEIGHT = 1.3  # 优先卖给格子被部分占用的
+    SELL_WEIGHT = 1.4  # 优先卖给格子被部分占用的
     SELL_DEBUFF = 0.8  # 非 7 卖给89的惩罚
-    CONSERVATIVE = 1  # 保守程度 最后时刻要不要操作
+    CONSERVATIVE = 1+1/MOVE_SPEED*5  # 保守程度 最后时刻要不要操作
     BUY_WEIGHT = [1]*4+[1]*3+[1]  # 购买优先级，优先购买高级商品
     # BUY_WEIGHT = [1.5, 1, 1, 1, 1, 1, 1, 1]  # 购买优先级，优先购买高级商品
 
@@ -1074,7 +983,7 @@ class Controller:
                 # 2023-3-22 优化如果格子已满可以考虑
                 frame_wait_sell = 0
                 if WORKSTAND_OUT[sell_type] and 1 << workstand_type & sell_material:
-                    # continue
+                    continue
                     # 阻塞或者材料格没满
                     if sell_product_time in [-1, 0] or sell_material != WORKSTAND_FULL[sell_type]:
                         continue
@@ -1094,7 +1003,8 @@ class Controller:
                     continue
                 time_rate = self.get_time_rate(
                     frame_move_to_sell)  # 时间损耗
-                sell_weight = self.SELL_WEIGHT**self.count_1(sell_material) # 已经占用的格子越多优先级越高
+                # sell_weight = self.SELL_WEIGHT**self.count_1(sell_material) # 已经占用的格子越多优先级越高
+                sell_weight = self.SELL_WEIGHT if sell_material else 1 # 已经占用的格子越多优先级越高
                 sell_debuff = self.SELL_DEBUFF if sell_type == 9 and workstand_type != 7 else 1
                 radio = (
                     ITEMS_SELL[workstand_type] * time_rate - ITEMS_BUY[
@@ -1234,187 +1144,3 @@ class Controller:
             idx_robot += 1
         for idx_robot in sell_out_list:
             self.set_pro_sell(idx_robot, False)
-
-    def control2(self, frame_id: int):
-        self.cal_dis_robot2workstand()
-        self.cal_dis_robot2robot()
-
-        # 计算移动耗时
-        self.cal_dis_robot2workstand2cell()
-
-        # 计算冷却耗时
-        self.cal_cooldown()
-
-        # 计算总耗时
-        self.cal_time()
-
-        # 计算利润
-        self.cal_profit_workstand2cell(frame_id)
-
-        # 计算利率 利润 / 耗时
-        self.cal_profit_rate()
-
-        # 从未被锁定的组合中依次选取最高
-        self.select()
-        self.select()
-        self.select()
-        self.select()
-
-        for idx_robot in range(4):
-            robot_status = int(self._robots.get_status(
-                feature_status_r, idx_robot))
-            if robot_status == RobotGroup.FREE_STATUS:
-                # 【空闲】
-
-                # 判定目标买点是否合法
-                target_buy = int(self._robots.get_status(
-                    feature_target_buy_r, idx_robot))
-                # 将目标买点设为目标点
-                if not target_buy == -1:
-                    self._robots.set_status_item(
-                        feature_target_r, idx_robot, target_buy)
-                    # 切换状态为【购买途中】
-                    self._robots.set_status_item(
-                        feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)
-                continue
-            elif robot_status == RobotGroup.MOVE_TO_BUY_STATUS:
-                # 【购买途中】
-
-                self.move2loc_new(idx_robot)
-
-                target_workstand = int(self._robots.get_status(
-                    feature_target_buy_r, idx_robot))
-                product_status = int(self._workstands.get_status(
-                    feature_product_state_w, target_workstand))
-                # 判定是否进入交互范围
-                if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
-                        feature_target_r, idx_robot) and product_status == 1:
-                    print("buy", idx_robot)
-
-                    self._robots.set_status_item(
-                        feature_status_r, idx_robot, RobotGroup.WAIT_TO_BUY_STATUS)  # 切换为 【买后验证】
-                continue
-
-            elif robot_status == RobotGroup.WAIT_TO_BUY_STATUS:
-                # 【买后验证】
-                if int(self._robots.get_status(feature_materials_r, idx_robot)) > 0:
-                    # 确认成功买入
-
-                    # 目标工作台
-                    target_workstand = int(self._robots.get_status(
-                        feature_target_buy_r, idx_robot))
-
-                    # 目标格子
-                    target_sell_cell = int(self._robots.get_status(
-                        feature_target_sell_r, idx_robot))
-
-                    # 目标格子对应的工作台
-                    target_sell_workstand, _ = self._workstands.get_id_workstand_of_cell(
-                        target_sell_cell)
-                    target_sell_workstand = int(target_sell_workstand)
-
-                    # 解锁这个工作台
-                    self._product_workstand_unlock[target_workstand] = True
-
-                    self._robots.set_status_item(
-                        feature_target_r, idx_robot, target_sell_workstand)  # 更新目标到卖出地点
-                    self._robots.set_status_item(
-                        feature_buy_count, idx_robot, 0)
-                    self._robots.set_status_item(
-                        feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)  # 切换为 【出售途中】
-
-                else:
-                    self._robots.set_status_item(feature_buy_count, idx_robot, self._robots.get_status(
-                        feature_buy_count, idx_robot) + 1)
-
-                    if self._robots.get_status(feature_buy_count, idx_robot) < 2:
-                        # 两次内购买失败说明位置不对，切换为 【购买途中】
-                        self._robots.set_status_item(
-                            feature_status_r, idx_robot, RobotGroup.MOVE_TO_BUY_STATUS)
-                    else:
-                        # 超过两次给购买失败
-                        # 重新规划
-                        target_sell_cell = int(self._robots.get_status(
-                            feature_target_sell_r, idx_robot))
-                        target_workstand, _ = self._workstands.get_id_workstand_of_cell(
-                            target_sell_cell)
-                        target_workstand = int(target_workstand)
-                        workstand_type, _, material, _ = map(
-                            int, self._workstands.get_workstand_status(target_workstand))
-                        material_type = int(self._robots.get_status(
-                            feature_materials_r, idx_robot))
-
-                        # 解锁格子
-                        self._receive_cell_unlock[target_sell_cell] = True
-                        # 解锁工作台
-                        self._product_workstand_unlock[target_workstand] = True
-                        self._robot_unlock[idx_robot] = True  # 解锁机器人
-
-                        self._robots.set_status_item(feature_target_r, -1)
-
-                        self._robots.set_status_item(
-                            feature_status_r, idx_robot, RobotGroup.FREE_STATUS)  # 切换为空闲
-                        raise Exception('Buy Many times')
-                continue
-
-            elif robot_status == RobotGroup.MOVE_TO_SELL_STATUS:
-                # 【出售途中】
-                # 移动
-                # 判断距离是否够近
-                self.move2loc_new(idx_robot)
-
-                target_sell_cell = int(self._robots.get_status(
-                    feature_target_sell_r, idx_robot))
-                target_workstand, _ = self._workstands.get_id_workstand_of_cell(
-                    target_sell_cell)
-                target_workstand = int(target_workstand)
-                workstand_type, _, material, _ = map(
-                    int, self._workstands.get_workstand_status(target_workstand))
-                material_type = int(self._robots.get_status(
-                    feature_materials_r, idx_robot))
-
-                if idx_robot == 3:
-                    aaaaaaaaa = 10000000000000
-                # 判定是否进入交互范围 且格子内无材料
-                if self._robots.get_status(feature_workstand_id_r, idx_robot) == self._robots.get_status(
-                        feature_target_r, idx_robot) and (material & 1 << material_type) == 0:
-                    print("sell", idx_robot)
-
-                    self._robots.set_status_item(
-                        feature_status_r, idx_robot, RobotGroup.WAIT_TO_SELL_STATUS)  # 切换为 【卖后验证】
-                    # logging.debug(f"{idx_robot}->ready to sell")
-
-                continue
-
-            elif robot_status == RobotGroup.WAIT_TO_SELL_STATUS:
-                # 【卖后验证】
-
-                if int(self._robots.get_status(feature_materials_r, idx_robot)) == 0:
-                    # 成功卖出
-                    target_sell_cell = int(self._robots.get_status(
-                        feature_target_sell_r, idx_robot))
-                    self._receive_cell_unlock[target_sell_cell] = True  # 解锁格子
-                    self._robot_unlock[idx_robot] = True  # 解锁机器人
-                    self._robots.set_status_item(
-                        feature_status_r, idx_robot, RobotGroup.FREE_STATUS)  # 切换为空闲
-                    self._robots.set_status_item(
-                        feature_sell_count, idx_robot, 0)
-                    # logging.debug(f"{idx_robot}->wait")
-
-                else:
-                    # 卖出失败
-
-                    self._robots.set_status_item(feature_sell_count, idx_robot,
-                                                 self._robots.get_status(feature_sell_count, idx_robot) + 1)
-                    if self._robots.get_status(feature_sell_count, idx_robot) < 2:
-                        # 两次内卖出失败说明位置不对，切换为 【卖出途中】
-                        self._robots.set_status_item(
-                            feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)
-                    else:
-                        # 重新找卖家
-                        self.change(idx_robot)
-                        # 变更买家，切换为 【卖出途中】
-                        self._robots.set_status_item(
-                            feature_status_r, idx_robot, RobotGroup.MOVE_TO_SELL_STATUS)
-                        # raise Exception('Sell Many times')
-                continue
