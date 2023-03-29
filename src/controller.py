@@ -342,14 +342,6 @@ class Controller:
         target_angle2 = np.arctan2(dy_w12w2, dx_w12w2)
         return target_angle1 - target_angle2
 
-    def get_time_rww(self, idx_robot, idx_workstand1, idx_workstand2):
-        dis_r2w1 = self._dis_robot2workstand[idx_robot, idx_workstand1]
-        dis_w12w2 = self._dis_workstand2workstand[idx_workstand1, idx_workstand2]
-
-        theta_r2w1 = self.get_delta_theta(idx_robot)
-        theta_w12w2 = self.get_delta_theta2target(idx_robot, idx_workstand1, idx_workstand2)
-
-        return compute_time_to_arrive(dis_r2w1, theta_r2w1), compute_time_to_arrive(theta_w12w2, theta_r2w1)
 
 
     def get_other_col_info(self, idx_robot, idx_other):
