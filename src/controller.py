@@ -179,126 +179,10 @@ class Controller:
         self._dis_robot2workstand2cell = self._dis_robot2workstand[:, :, np.newaxis] + self._dis_cell2workstand.T[
             np.newaxis, :, :]
 
-    def cal_cooldown(self):
-        # 计算机器人-工作台(所有工作台)的冷却时间以及工作台-格子(所有格子)的冷却时间
-        # 分两段计算 因为移动过程也是两段，要分两段取max
-
-        # 机器人到工作台
-        # 等待工作台的冷却时间 工作台广播
-        for key_workstand in range(self._workstands.count):
-            idx_workstand = key_workstand
-            if int(self._workstands.get_status(feature_product_state_w, idx_workstand)) == 1:
-                # 产品格有产品
-                waiting_time = 0
-            elif int(self._workstands.get_status(feature_waiting_time_w, idx_workstand)) == -1:
-                # 没产品且不在生产中
-                waiting_time = 10000
-            else:
-                waiting_time = int(self._workstands.get_status(
-                    feature_waiting_time_w, idx_workstand))
-
-            self._cooldown_robot2workstand[:, key_workstand] = waiting_time
-
-        # 工作台到格子
-        # 等待格子的冷却时间 格子广播
-        for key_cell in range(self._workstands.count_cell):
-            # 获取此格子对应的工作台id和收购产品类型
-            idx_workstand, material_receive = self._workstands.get_id_workstand_of_cell(
-                key_cell)
-
-            # 获取工作台id的原料格状态
-            _, _, material, _ = self._workstands.get_workstand_status(
-                idx_workstand)
-            if int(material) & (1 << material_receive):
-                # 这个盒子已有物品
-                waiting_time = int(self._workstands._workstand[idx_workstand,
-                                                           feature_waiting_time_w])
-                if waiting_time <= 0:
-                    # -1 没在生产，不是冷却时间为-1
-                    # 0 在阻塞，不是冷却时间为0
-                    # workstand_type= self._workstands.get_status(feature_num_type_w, idx_workstand)
-                    # waiting_time = cool_down_time_max[workstand_type]
-                    waiting_time = 100000  # 冷却时间设为无穷
-
-            else:
-                # 还可以放物品
-                waiting_time = 0
-            self._cooldown_workstand2cell[:, key_cell] = waiting_time
-
-    def cal_time(self):
-        time_robot2workstand = np.maximum(
-            self._dis_robot2workstand / 5.9 * 50, self._cooldown_robot2workstand)
-        time_workstand2cell = np.maximum(
-            self._dis_cell2workstand.T / 5.9 * 50, self._cooldown_workstand2cell)
-        self._time_robot2workstand2cell = time_robot2workstand[:,
-                                                               :, np.newaxis] + time_workstand2cell[np.newaxis, :, :]
-
     def cal_profit_rate(self):
         self._profit_rate_estimation = self._profit_estimation / \
             self._time_robot2workstand2cell
 
-    def select(self):
-        self._index_tran_r = np.where(self._robot_unlock)[0]
-        self._index_tran_w = np.where(self._product_workstand_unlock)[0]
-        self._index_tran_c = np.where(self._receive_cell_unlock)[0]
-        temp = self._profit_rate_estimation[self._robot_unlock, :, :]
-        temp = temp[:, self._product_workstand_unlock, :]
-        profit_rate_estimation = temp[:, :, self._receive_cell_unlock]
-
-        # 未被锁定的利率
-        if self._robot_unlock[:].any() and (profit_rate_estimation > 0).any():
-            r_id, w_id, c_id = np.unravel_index(
-                np.argmax(profit_rate_estimation, axis=None), profit_rate_estimation.shape)
-            r_id = self._index_tran_r[r_id]
-            w_id = self._index_tran_w[w_id]
-            c_id = self._index_tran_c[c_id]
-            self._robots.set_status_item(feature_target_buy_r, r_id, w_id)
-            self._robots.set_status_item(feature_target_sell_r, r_id, c_id)
-            self._robot_unlock[r_id] = False
-
-            if not int(self._workstands.get_status(feature_num_type_w, w_id)) in [1,2,3]:
-                self._product_workstand_unlock[w_id] = False
-            self._receive_cell_unlock[c_id] = False
-            return True
-        else:
-            return False
-
-    def change(self, idx_robot):
-        # 机器人和原目标格子以及对应的工作台
-        target_sell_cell = int(self._robots.get_status(
-            feature_target_sell_r, idx_robot))
-        target_workstand, _ = self._workstands.get_id_workstand_of_cell(
-            target_sell_cell)
-        target_workstand = int(target_workstand)
-
-        material_carry = int(self._robots.get_status(
-            feature_materials_r, idx_robot))
-        # 选择距离当前工作台最近 的 且接收相同物品的格子
-        min_dis = 10000
-        idx_new_cell = -1
-        for key_cell in range(self._workstands.count_cell):
-            try_workstand, _ = self._workstands.get_id_workstand_of_cell(
-                target_sell_cell)
-            try_workstand = int(try_workstand)
-            _, _, material, _ = self._workstands.get_workstand_status(
-                try_workstand)
-
-            # 格子里有物品
-            try_flag = int(material) & (1 << material_carry) == 0
-            if try_flag and self._dis_cell2workstand[key_cell, target_workstand] < min_dis and self._receive_cell_unlock[key_cell]:
-                min_dis = self._dis_cell2workstand[key_cell, target_workstand]
-                idx_new_cell = key_cell
-
-        self._robots.set_status_item(
-            feature_target_sell_r, idx_robot, idx_new_cell)
-        new_workstand, _ = self._workstands.get_id_workstand_of_cell(
-            idx_new_cell)
-        self._robots.set_status_item(feature_target_r, idx_robot, new_workstand)
-
-        self._receive_cell_unlock[idx_new_cell] = False
-
-        # 释放出现异常无法卖出的格子
-        self._receive_cell_unlock[target_sell_cell] = True
 
     def get_dis_robot2robot(self, idx_robot1, idx_robot2):
         # 机器人到工作台的距离
@@ -405,21 +289,6 @@ class Controller:
                         near_flag = -1
         return near_flag
 
-    def wait_other_buy(self, idx_robot, distance_r2w):
-        # 当自己准备买时 如果目标格子有物品且工作台有产出尚未取出 需变更目标坐标等待
-        flag = False
-        target_sell_cell = int(self._robots.get_status(
-            feature_target_sell_r, idx_robot))
-        target_workstand, _ = self._workstands.get_id_workstand_of_cell(
-            target_sell_cell)
-        target_workstand = int(target_workstand)
-        workstand_type, _, material, _ = map(
-            int, self._workstands.get_workstand_status(target_workstand))
-        material_type = int(self._robots.get_status(
-            feature_materials_r, idx_robot))
-        if (material & 1 << material_type) and self._workstands.get_status(feature_product_state_w, target_workstand) == 1 and distance_r2w < 4:
-            flag = True
-        return flag
 
 
     def move2loc_new(self, idx_robot):
@@ -715,95 +584,6 @@ class Controller:
         total_field = repulsive_field + attractive_field
         desired_angle = np.arctan2(total_field[1], total_field[0])
         return desired_angle, distance_r2w, near_flag
-
-    def move2loc_new_bck(self, idx_robot):
-        # 输入控制机器人编号 目标工作台编号 期望速度
-        # 结合人工势场计算速度
-        idx_target = self._robots.get_status(feature_target_r, idx_robot)
-
-        desired_theta, distance_r2w, near_flag = self.calculate_potential_field(
-            idx_robot, idx_target)
-
-        # 比例控制 追踪目标方向
-        # 计算相差方向 P
-        now_theta = self._robots.get_status(feature_theta_r, idx_robot)
-        # now_theta = math.atan2(self._robots.get_status(feature_line_velo_y_r, idx_robot), self._robots.get_status(feature_line_velo_x_r, idx_robot))
-        now_ang_velo = self._robots.get_status(feature_ang_velo_r, idx_robot)
-        delta_theta = desired_theta - now_theta
-        delta_theta = (delta_theta + math.pi) % (2 * math.pi) - math.pi
-        k_r = 10
-        n_r = 1
-        k_s = 10
-        n_s = 1.5
-
-        # self._robots.rotate(idx_robot, delta_theta * k_r)
-        if not near_flag == -1 and abs(delta_theta) < math.pi / 3:  #False:  #
-            # 应该避让时
-            speed = -1
-            self._robots.forward(idx_robot, speed)
-            # delta_theta += 0.7
-            self._robots.rotate(idx_robot, delta_theta * k_r)
-        else:
-            d_far = 11
-            d_near = 5
-            d_daoche = 3
-
-            ang_large = math.pi * 0.9
-            ang_small = math.pi * 0.1
-            if abs(delta_theta) < ang_small:
-                # 面对目标方向
-                self._robots.rotate(
-                    idx_robot, sign_pow(delta_theta, n_r) * k_r)
-                self._robots.forward(idx_robot, distance_r2w ** n_s * k_s)
-            elif abs(delta_theta) < ang_large:
-                if distance_r2w > d_far:
-                    # 距离远且不面对目标方向
-
-                    # 边开边转（有希望开近的时候面对目标）
-                    self._robots.rotate(
-                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
-                    self._robots.forward(idx_robot, distance_r2w ** n_s * k_s)
-                elif distance_r2w > d_near:
-                    # 距离适中且不面对目标方向
-
-                    # 低速前进地转（防止凑近之后绕圈）
-                    self._robots.rotate(
-                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
-                    self._robots.forward(idx_robot, 2)
-                else:
-                    # 距离近且不面对目标方向
-
-                    # 原地转（防止凑近之后绕圈）
-                    self._robots.rotate(
-                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
-                    self._robots.forward(idx_robot, 0)
-            else:
-                if distance_r2w > d_far:
-                    # 距离远且背对目标方向
-                    # 倒车转向
-                    self._robots.rotate(
-                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
-                    self._robots.forward(idx_robot, -2)
-                elif distance_r2w > d_near:
-                    # 距离适中且背对目标方向
-                    # 倒车转向
-                    self._robots.rotate(
-                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
-                    self._robots.forward(idx_robot, -2)
-                elif distance_r2w > d_daoche:
-                    # 距离较近且背对目标方向
-                    # 倒车转向
-                    self._robots.rotate(
-                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
-                    self._robots.forward(idx_robot, -2)
-                else:
-                    # 倒车距离且背对目标方向 √
-
-                    # 倒车
-                    delta_theta += math.pi
-                    self._robots.rotate(
-                        idx_robot, sign_pow(delta_theta, n_r) * k_r)
-                    self._robots.forward(idx_robot, -distance_r2w ** n_s * k_s)
 
     def pre_rotate(self, idx_robot, next_walkstand):
         desired_theta, _, _ = self.calculate_potential_field(
