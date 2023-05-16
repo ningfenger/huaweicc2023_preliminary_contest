@@ -916,7 +916,7 @@ class Controller:
                     continue
                 time_rate = self.get_time_rate(
                     frame_move_to_sell)  # 时间损耗
-                # sell_weight = self.SELL_WEIGHT**self.count_1(sell_material) # 已经占用的格子越多优先级越高
+                sell_weight = self.SELL_WEIGHT**self.count_1(sell_material) # 已经占用的格子越多优先级越高
                 sell_weight = self.SELL_WEIGHT if sell_material else 1 # 已经占用的格子越多优先级越高
                 sell_debuff = self.SELL_DEBUFF if sell_type == 9 and workstand_type != 7 else 1
                 radio = (
