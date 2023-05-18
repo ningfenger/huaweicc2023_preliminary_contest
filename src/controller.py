@@ -77,12 +77,6 @@ class Controller:
         self._index_tran_w = [-1] * self._workstands.count
         self._index_tran_c = [-1] * self._workstands.count_cell
 
-        self._buy_workstand_ori = None
-        self._sell_cell_ori = None
-        self._type_equal_ori = None
-        self._buy_workstand_dynamic = None
-        self._sell_cell_dynamic = None
-        self._type_equal_dynamic = None
         if DEBUG:
             logging.basicConfig(filename='debug.log', level=logging.DEBUG)
 
@@ -144,28 +138,6 @@ class Controller:
         self._delta_x_c2w, self._delta_y_c2w, self._dis_cell2workstand = get_dx_dy_d(
             loc_cell, loc_workstand)
 
-        # 原始工作台购买价格
-        self._buy_workstand_ori = np.array(
-            [self._workstands.product_workstand_dict[key][2] for key in self._workstands.product_workstand_dict])
-
-        # 原始格子收购价格价格
-        self._sell_cell_ori = np.array(
-            [self._workstands.receive_cell_dict[key][2] for key in self._workstands.receive_cell_dict])
-
-        # 动态采购出售价格初始化，生成规模一致的数组
-        self._buy_workstand_dynamic = copy.deepcopy(self._buy_workstand_ori)
-        self._sell_cell_dynamic = copy.deepcopy(self._sell_cell_ori)
-        # 工作台生产物品类型
-        type_workstand = np.array(
-            [self._workstands.product_workstand_dict[key][3] for key in self._workstands.product_workstand_dict])
-
-        # 格子收购物品类型
-        type_cell = np.array([self._workstands.receive_cell_dict[key][3]
-                             for key in self._workstands.receive_cell_dict])
-
-        # 做差 0表示生产收购一致
-        self._type_equal_ori = type_cell.reshape(
-            1, -1) - type_workstand.reshape(-1, 1)
 
     def cal_dis_robot2workstand2cell(self):
         loc_robots = self._robots.get_loc(-1)
